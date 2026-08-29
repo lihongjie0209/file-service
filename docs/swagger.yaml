@@ -1,0 +1,428 @@
+basePath: /
+definitions:
+  buildinfo.Info:
+    properties:
+      build_time:
+        type: string
+      commit:
+        type: string
+      started_at:
+        type: string
+      uptime:
+        type: string
+      version:
+        type: string
+    type: object
+  file.Authorization:
+    properties:
+      expires_at:
+        type: string
+      file:
+        $ref: '#/definitions/file.Metadata'
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      url:
+        type: string
+    type: object
+  file.Metadata:
+    properties:
+      bucket:
+        type: string
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      filename:
+        type: string
+      id:
+        type: string
+      idempotency_key:
+        type: string
+      object_key:
+        type: string
+      owner_id:
+        type: string
+      scan_status:
+        type: string
+      size:
+        type: integer
+      status:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      version:
+        type: integer
+    type: object
+  health.Dependency:
+    properties:
+      latency:
+        type: string
+      status:
+        type: string
+    type: object
+  health.Status:
+    properties:
+      dependencies:
+        additionalProperties:
+          $ref: '#/definitions/health.Dependency'
+        type: object
+      status:
+        type: string
+    type: object
+  httptransport.CompleteUploadRequest:
+    properties:
+      checksum_sha256:
+        type: string
+      expected_version:
+        type: integer
+      id:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - checksum_sha256
+    - expected_version
+    - id
+    - tenant_id
+    type: object
+  httptransport.DeleteFileRequest:
+    properties:
+      expected_version:
+        type: integer
+      id:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - expected_version
+    - id
+    - tenant_id
+    type: object
+  httptransport.FileIDRequest:
+    properties:
+      id:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - id
+    - tenant_id
+    type: object
+  httptransport.InitiateUploadRequest:
+    properties:
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      filename:
+        type: string
+      idempotency_key:
+        type: string
+      size:
+        type: integer
+      tenant_id:
+        type: string
+    required:
+    - checksum_sha256
+    - content_type
+    - filename
+    - idempotency_key
+    - size
+    - tenant_id
+    type: object
+  httptransport.MeResponseBody:
+    properties:
+      subject:
+        type: string
+    type: object
+  httptransport.ReportScanResultRequest:
+    properties:
+      expected_version:
+        type: integer
+      id:
+        type: string
+      scan_status:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - expected_version
+    - id
+    - scan_status
+    - tenant_id
+    type: object
+  httptransport.Response:
+    properties:
+      body: {}
+      code:
+        type: integer
+      message:
+        type: string
+      request_id:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: 'Production-oriented Go Web API scaffold. Application error codes:
+    0 success; 10000-19999 common/input; 20000-29999 authentication/authorization;
+    30000-39999 business; 50000-59999 infrastructure.'
+  title: Go API Template
+  version: "1.0"
+paths:
+  /api/v1/files/delete:
+    post:
+      parameters:
+      - description: File version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.DeleteFileRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      summary: Delete a file using optimistic concurrency
+      tags:
+      - files
+  /api/v1/files/downloads/authorize:
+    post:
+      parameters:
+      - description: File ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.FileIDRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Authorization'
+              type: object
+      security:
+      - Bearer: []
+      summary: Create a short-lived download URL
+      tags:
+      - files
+  /api/v1/files/metadata/get:
+    post:
+      parameters:
+      - description: File ID
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.FileIDRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      summary: Get file metadata
+      tags:
+      - files
+  /api/v1/files/scans/report:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Scan result
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ReportScanResultRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      - PSK: []
+      summary: Record an antivirus or content scan result
+      tags:
+      - files
+  /api/v1/files/uploads/complete:
+    post:
+      parameters:
+      - description: Completed upload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.CompleteUploadRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      summary: Verify and complete an upload
+      tags:
+      - files
+  /api/v1/files/uploads/initiate:
+    post:
+      parameters:
+      - description: Upload metadata
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.InitiateUploadRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Authorization'
+              type: object
+      security:
+      - Bearer: []
+      summary: Initiate a direct object-storage upload
+      tags:
+      - files
+  /api/v1/me:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.MeResponseBody'
+              type: object
+        "401":
+          description: 'Code 20001: unauthorized'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: Return the authenticated subject
+      tags:
+      - authentication
+  /api/v1/version:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/buildinfo.Info'
+              type: object
+      summary: Return build and runtime version information
+      tags:
+      - operations
+  /live:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+      summary: Check process liveness
+      tags:
+      - operations
+  /ready:
+    post:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+        "503":
+          description: 'Code 50003: dependency unavailable'
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/health.Status'
+              type: object
+      summary: Check database and Redis readiness
+      tags:
+      - operations
+schemes:
+- http
+- https
+securityDefinitions:
+  Bearer:
+    description: Enter "Bearer {JWT}".
+    in: header
+    name: Authorization
+    type: apiKey
+  PSK:
+    description: Enter "PSK {shared-key}" for routes configured with PSK authentication.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
