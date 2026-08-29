@@ -85,4 +85,35 @@ func TestS3PresignedLifecycle(t *testing.T) {
 	if err := storage.Delete(ctx, "tenant/file.txt"); err != nil {
 		t.Fatal(err)
 	}
+	multipartPayload := bytes.Repeat([]byte("m"), 6<<20)
+	multipartChecksum := fmt.Sprintf("%x", sha256.Sum256(multipartPayload))
+	uploadID, err := storage.InitiateMultipart(ctx, "tenant/archive.bin", "application/octet-stream", multipartChecksum)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := make([]objectstorage.CompletedPart, 0, 2)
+	for index, body := range [][]byte{multipartPayload[:5<<20], multipartPayload[5<<20:]} {
+		partNumber := index + 1
+		partURL, err := storage.PresignUploadPart(ctx, "tenant/archive.bin", uploadID, partNumber)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequestWithContext(ctx, http.MethodPut, partURL.String(), bytes.NewReader(body))
+		response, err := http.DefaultClient.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("multipart part %d status=%d", partNumber, response.StatusCode)
+		}
+		parts = append(parts, objectstorage.CompletedPart{PartNumber: partNumber, ETag: response.Header.Get("ETag")})
+	}
+	if err := storage.CompleteMultipart(ctx, "tenant/archive.bin", uploadID, parts); err != nil {
+		t.Fatal(err)
+	}
+	multipartInfo, err := storage.Stat(ctx, "tenant/archive.bin")
+	if err != nil || multipartInfo.Size != int64(len(multipartPayload)) || multipartInfo.ChecksumSHA256 != multipartChecksum {
+		t.Fatalf("multipart info=%+v err=%v", multipartInfo, err)
+	}
 }

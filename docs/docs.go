@@ -288,6 +288,182 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/files/uploads/multipart/abort": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Abort a multipart upload and release its object-storage parts",
+                "parameters": [
+                    {
+                        "description": "Multipart upload version",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.DeleteFileRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/file.Metadata"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/files/uploads/multipart/authorize-part": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Create a short-lived URL for one multipart upload part",
+                "parameters": [
+                    {
+                        "description": "Upload part",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.AuthorizeUploadPartRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/file.Authorization"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/files/uploads/multipart/complete": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Assemble uploaded parts and verify the completed object",
+                "parameters": [
+                    {
+                        "description": "Completed multipart upload",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.CompleteMultipartUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/file.Metadata"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/files/uploads/multipart/initiate": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "Initiate a resumable multipart object-storage upload",
+                "parameters": [
+                    {
+                        "description": "Multipart upload metadata",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.InitiateMultipartUploadRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/file.MultipartAuthorization"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me": {
             "post": {
                 "security": [
@@ -516,6 +692,12 @@ const docTemplate = `{
                 "owner_id": {
                     "type": "string"
                 },
+                "part_count": {
+                    "type": "integer"
+                },
+                "part_size": {
+                    "type": "integer"
+                },
                 "scan_status": {
                     "type": "string"
                 },
@@ -534,8 +716,34 @@ const docTemplate = `{
                 "updated_by": {
                     "type": "string"
                 },
+                "upload_expires_at": {
+                    "type": "string"
+                },
+                "upload_mode": {
+                    "type": "string"
+                },
                 "version": {
                     "type": "integer"
+                }
+            }
+        },
+        "file.MultipartAuthorization": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "file": {
+                    "$ref": "#/definitions/file.Metadata"
+                },
+                "part_count": {
+                    "type": "integer"
+                },
+                "part_size": {
+                    "type": "integer"
+                },
+                "upload_id": {
+                    "type": "string"
                 }
             }
         },
@@ -564,6 +772,55 @@ const docTemplate = `{
                 }
             }
         },
+        "httptransport.AuthorizeUploadPartRequest": {
+            "type": "object",
+            "required": [
+                "id",
+                "part_number",
+                "tenant_id"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "part_number": {
+                    "type": "integer"
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.CompleteMultipartUploadRequest": {
+            "type": "object",
+            "required": [
+                "checksum_sha256",
+                "expected_version",
+                "id",
+                "parts",
+                "tenant_id"
+            ],
+            "properties": {
+                "checksum_sha256": {
+                    "type": "string"
+                },
+                "expected_version": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.CompletedPartRequest"
+                    }
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
         "httptransport.CompleteUploadRequest": {
             "type": "object",
             "required": [
@@ -584,6 +841,21 @@ const docTemplate = `{
                 },
                 "tenant_id": {
                     "type": "string"
+                }
+            }
+        },
+        "httptransport.CompletedPartRequest": {
+            "type": "object",
+            "required": [
+                "etag",
+                "part_number"
+            ],
+            "properties": {
+                "etag": {
+                    "type": "string"
+                },
+                "part_number": {
+                    "type": "integer"
                 }
             }
         },
@@ -615,6 +887,40 @@ const docTemplate = `{
             "properties": {
                 "id": {
                     "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.InitiateMultipartUploadRequest": {
+            "type": "object",
+            "required": [
+                "checksum_sha256",
+                "content_type",
+                "filename",
+                "idempotency_key",
+                "size",
+                "tenant_id"
+            ],
+            "properties": {
+                "checksum_sha256": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "idempotency_key": {
+                    "type": "string"
+                },
+                "part_size": {
+                    "type": "integer"
+                },
+                "size": {
+                    "type": "integer"
                 },
                 "tenant_id": {
                     "type": "string"

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lihongjie0209/file-service/internal/config"
@@ -17,11 +18,19 @@ type ObjectInfo struct {
 	Size           int64
 	ChecksumSHA256 string
 }
+type CompletedPart struct {
+	PartNumber int
+	ETag       string
+}
 type Storage interface {
 	PresignUpload(context.Context, string, string, int64, string) (*url.URL, error)
 	PresignDownload(context.Context, string) (*url.URL, error)
 	Stat(context.Context, string) (ObjectInfo, error)
 	Delete(context.Context, string) error
+	InitiateMultipart(context.Context, string, string, string) (string, error)
+	PresignUploadPart(context.Context, string, string, int) (*url.URL, error)
+	CompleteMultipart(context.Context, string, string, []CompletedPart) error
+	AbortMultipart(context.Context, string, string) error
 	Bucket() string
 	TTL() time.Duration
 	MaxUploadBytes() int64
@@ -75,4 +84,37 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 		return errors.New("object storage is disabled")
 	}
 	return s.client.RemoveObject(ctx, s.cfg.Bucket, key, minio.RemoveObjectOptions{})
+}
+func (s *S3) InitiateMultipart(ctx context.Context, key, contentType, checksum string) (string, error) {
+	if !s.Enabled() {
+		return "", errors.New("object storage is disabled")
+	}
+	core := minio.Core{Client: s.client}
+	return core.NewMultipartUpload(ctx, s.cfg.Bucket, key, minio.PutObjectOptions{ContentType: contentType, UserMetadata: map[string]string{"sha256": checksum}})
+}
+func (s *S3) PresignUploadPart(ctx context.Context, key, uploadID string, partNumber int) (*url.URL, error) {
+	if !s.Enabled() {
+		return nil, errors.New("object storage is disabled")
+	}
+	params := url.Values{"uploadId": {uploadID}, "partNumber": {strconv.Itoa(partNumber)}}
+	return s.client.Presign(ctx, http.MethodPut, s.cfg.Bucket, key, s.cfg.PresignTTL, params)
+}
+func (s *S3) CompleteMultipart(ctx context.Context, key, uploadID string, parts []CompletedPart) error {
+	if !s.Enabled() {
+		return errors.New("object storage is disabled")
+	}
+	completed := make([]minio.CompletePart, 0, len(parts))
+	for _, part := range parts {
+		completed = append(completed, minio.CompletePart{PartNumber: part.PartNumber, ETag: strings.Trim(strings.TrimSpace(part.ETag), "\"")})
+	}
+	core := minio.Core{Client: s.client}
+	_, err := core.CompleteMultipartUpload(ctx, s.cfg.Bucket, key, uploadID, completed, minio.PutObjectOptions{})
+	return err
+}
+func (s *S3) AbortMultipart(ctx context.Context, key, uploadID string) error {
+	if !s.Enabled() {
+		return errors.New("object storage is disabled")
+	}
+	core := minio.Core{Client: s.client}
+	return core.AbortMultipartUpload(ctx, s.cfg.Bucket, key, uploadID)
 }

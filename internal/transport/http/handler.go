@@ -35,6 +35,26 @@ type CompleteUploadRequest struct {
 	ChecksumSHA256  string `json:"checksum_sha256" binding:"required"`
 	ExpectedVersion int64  `json:"expected_version" binding:"required"`
 }
+type InitiateMultipartUploadRequest struct {
+	InitiateUploadRequest
+	PartSize int64 `json:"part_size"`
+}
+type AuthorizeUploadPartRequest struct {
+	ID         string `json:"id" binding:"required"`
+	TenantID   string `json:"tenant_id" binding:"required"`
+	PartNumber int32  `json:"part_number" binding:"required"`
+}
+type CompletedPartRequest struct {
+	PartNumber int32  `json:"part_number" binding:"required"`
+	ETag       string `json:"etag" binding:"required"`
+}
+type CompleteMultipartUploadRequest struct {
+	ID              string                 `json:"id" binding:"required"`
+	TenantID        string                 `json:"tenant_id" binding:"required"`
+	Parts           []CompletedPartRequest `json:"parts" binding:"required"`
+	ChecksumSHA256  string                 `json:"checksum_sha256" binding:"required"`
+	ExpectedVersion int64                  `json:"expected_version" binding:"required"`
+}
 type ReportScanResultRequest struct {
 	ID              string `json:"id" binding:"required"`
 	TenantID        string `json:"tenant_id" binding:"required"`
@@ -124,6 +144,94 @@ func (h *Handler) InitiateUpload(c *gin.Context) {
 		return
 	}
 	v, err := h.files.InitiateUpload(c.Request.Context(), r.TenantID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, v)
+}
+
+// InitiateMultipartUpload godoc
+// @Summary Initiate a resumable multipart object-storage upload
+// @Tags files
+// @Security Bearer
+// @Param request body InitiateMultipartUploadRequest true "Multipart upload metadata"
+// @Success 200 {object} Response{body=file.MultipartAuthorization}
+// @Router /api/v1/files/uploads/multipart/initiate [post]
+func (h *Handler) InitiateMultipartUpload(c *gin.Context) {
+	var r InitiateMultipartUploadRequest
+	if err := c.ShouldBindJSON(&r); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	v, err := h.files.InitiateMultipartUpload(c.Request.Context(), r.TenantID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey, r.PartSize)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, v)
+}
+
+// AuthorizeUploadPart godoc
+// @Summary Create a short-lived URL for one multipart upload part
+// @Tags files
+// @Security Bearer
+// @Param request body AuthorizeUploadPartRequest true "Upload part"
+// @Success 200 {object} Response{body=file.Authorization}
+// @Router /api/v1/files/uploads/multipart/authorize-part [post]
+func (h *Handler) AuthorizeUploadPart(c *gin.Context) {
+	var r AuthorizeUploadPartRequest
+	if err := c.ShouldBindJSON(&r); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	v, err := h.files.AuthorizeUploadPart(c.Request.Context(), r.ID, r.TenantID, r.PartNumber)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, v)
+}
+
+// CompleteMultipartUpload godoc
+// @Summary Assemble uploaded parts and verify the completed object
+// @Tags files
+// @Security Bearer
+// @Param request body CompleteMultipartUploadRequest true "Completed multipart upload"
+// @Success 200 {object} Response{body=file.Metadata}
+// @Router /api/v1/files/uploads/multipart/complete [post]
+func (h *Handler) CompleteMultipartUpload(c *gin.Context) {
+	var r CompleteMultipartUploadRequest
+	if err := c.ShouldBindJSON(&r); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	parts := make([]filedomain.CompletedPart, 0, len(r.Parts))
+	for _, part := range r.Parts {
+		parts = append(parts, filedomain.CompletedPart{PartNumber: part.PartNumber, ETag: part.ETag})
+	}
+	v, err := h.files.CompleteMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ChecksumSHA256, parts, r.ExpectedVersion)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, v)
+}
+
+// AbortMultipartUpload godoc
+// @Summary Abort a multipart upload and release its object-storage parts
+// @Tags files
+// @Security Bearer
+// @Param request body DeleteFileRequest true "Multipart upload version"
+// @Success 200 {object} Response{body=file.Metadata}
+// @Router /api/v1/files/uploads/multipart/abort [post]
+func (h *Handler) AbortMultipartUpload(c *gin.Context) {
+	var r DeleteFileRequest
+	if err := c.ShouldBindJSON(&r); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	v, err := h.files.AbortMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return

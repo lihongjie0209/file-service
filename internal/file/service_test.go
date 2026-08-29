@@ -15,8 +15,9 @@ import (
 )
 
 type fakeRepository struct {
-	file   Metadata
-	outbox []OutboxEvent
+	file    Metadata
+	outbox  []OutboxEvent
+	expired []Metadata
 }
 
 func (f *fakeRepository) AddOutbox(_ context.Context, _ sqlx.ExtContext, event OutboxEvent) error {
@@ -48,11 +49,16 @@ func (f *fakeRepository) Update(_ context.Context, _ sqlx.ExtContext, v Metadata
 	f.file = v
 	return nil
 }
+func (f *fakeRepository) ListExpiredUploads(context.Context, time.Time, int) ([]Metadata, error) {
+	return f.expired, nil
+}
 
 type fakeStorage struct {
-	info      objectstorage.ObjectInfo
-	deletes   int
-	deleteErr error
+	info             objectstorage.ObjectInfo
+	deletes          int
+	deleteErr        error
+	completedParts   []objectstorage.CompletedPart
+	multipartAborted int
 }
 
 func (*fakeStorage) PresignUpload(context.Context, string, string, int64, string) (*url.URL, error) {
@@ -65,10 +71,25 @@ func (s *fakeStorage) Stat(context.Context, string) (objectstorage.ObjectInfo, e
 	return s.info, nil
 }
 func (s *fakeStorage) Delete(context.Context, string) error { s.deletes++; return s.deleteErr }
-func (*fakeStorage) Bucket() string                         { return "files" }
-func (*fakeStorage) TTL() time.Duration                     { return 15 * time.Minute }
-func (*fakeStorage) MaxUploadBytes() int64                  { return 1024 }
-func (*fakeStorage) Enabled() bool                          { return true }
+func (*fakeStorage) InitiateMultipart(context.Context, string, string, string) (string, error) {
+	return "upload-1", nil
+}
+func (*fakeStorage) PresignUploadPart(context.Context, string, string, int) (*url.URL, error) {
+	return url.Parse("https://storage/upload-part")
+}
+
+func (s *fakeStorage) CompleteMultipart(_ context.Context, _ string, _ string, parts []objectstorage.CompletedPart) error {
+	s.completedParts = append([]objectstorage.CompletedPart(nil), parts...)
+	return nil
+}
+func (s *fakeStorage) AbortMultipart(context.Context, string, string) error {
+	s.multipartAborted++
+	return nil
+}
+func (*fakeStorage) Bucket() string        { return "files" }
+func (*fakeStorage) TTL() time.Duration    { return 15 * time.Minute }
+func (*fakeStorage) MaxUploadBytes() int64 { return 1 << 30 }
+func (*fakeStorage) Enabled() bool         { return true }
 func TestUploadLifecycleAndIdempotency(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -129,6 +150,36 @@ func TestRequiredScanBlocksDownloadUntilCleanResult(t *testing.T) {
 		t.Fatalf("download after clean scan: %v", err)
 	}
 }
+func TestMultipartUploadLifecycle(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	checksum := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	repository := &fakeRepository{}
+	storage := &fakeStorage{info: objectstorage.ObjectInfo{Size: 11 << 20, ChecksumSHA256: checksum}}
+	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
+	now := time.Date(2026, 8, 30, 8, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	service.now = func() time.Time { return now }
+	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user-1"})
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	initiated, err := service.InitiateMultipartUpload(ctx, "tenant-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
+	if err != nil || initiated.PartCount != 3 || initiated.UploadID != "upload-1" || initiated.File.UploadMode != "multipart" {
+		t.Fatalf("initiated=%+v err=%v", initiated, err)
+	}
+	part, err := service.AuthorizeUploadPart(ctx, initiated.File.ID, "tenant-1", 2)
+	if err != nil || part.URL == "" {
+		t.Fatalf("part=%+v err=%v", part, err)
+	}
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	completed, err := service.CompleteMultipartUpload(ctx, initiated.File.ID, "tenant-1", checksum, []CompletedPart{{PartNumber: 3, ETag: "c"}, {PartNumber: 1, ETag: `"a"`}, {PartNumber: 2, ETag: "b"}}, initiated.File.Version)
+	if err != nil || completed.Status != "ready" || len(storage.completedParts) != 3 || storage.completedParts[0].PartNumber != 1 {
+		t.Fatalf("completed=%+v parts=%+v err=%v", completed, storage.completedParts, err)
+	}
+}
 func TestInitiateRejectsInvalidChecksum(t *testing.T) {
 	service := NewService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{})
 	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user"})
@@ -170,5 +221,26 @@ func TestDeletePersistsDeletingBeforeObjectStorageSideEffectAndCanRetry(t *testi
 	deleted, err := service.Delete(ctx, "file-1", "tenant-1", deleting.Version)
 	if err != nil || deleted.Status != "deleted" || deleted.Version != 3 || storage.deletes != 2 {
 		t.Fatalf("deleted=%+v calls=%d err=%v", deleted, storage.deletes, err)
+	}
+}
+
+func TestCleanupExpiredMultipartUpload(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	now := time.Date(2026, 8, 30, 8, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	expiresAt := now.Add(-time.Minute)
+	value := Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", UploadMode: "multipart", MultipartUploadID: "upload-1", Status: "pending_upload", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now}
+	repository := &fakeRepository{file: value, expired: []Metadata{value}}
+	storage := &fakeStorage{}
+	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
+	service.now = func() time.Time { return now }
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	count, err := service.CleanupExpiredUploads(t.Context())
+	if err != nil || count != 1 || storage.multipartAborted != 1 || repository.file.Status != "expired" || repository.file.Version != 2 {
+		t.Fatalf("count=%d aborts=%d file=%+v err=%v", count, storage.multipartAborted, repository.file, err)
 	}
 }

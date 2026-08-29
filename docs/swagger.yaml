@@ -48,6 +48,10 @@ definitions:
         type: string
       owner_id:
         type: string
+      part_count:
+        type: integer
+      part_size:
+        type: integer
       scan_status:
         type: string
       size:
@@ -60,8 +64,25 @@ definitions:
         type: string
       updated_by:
         type: string
+      upload_expires_at:
+        type: string
+      upload_mode:
+        type: string
       version:
         type: integer
+    type: object
+  file.MultipartAuthorization:
+    properties:
+      expires_at:
+        type: string
+      file:
+        $ref: '#/definitions/file.Metadata'
+      part_count:
+        type: integer
+      part_size:
+        type: integer
+      upload_id:
+        type: string
     type: object
   health.Dependency:
     properties:
@@ -79,6 +100,40 @@ definitions:
       status:
         type: string
     type: object
+  httptransport.AuthorizeUploadPartRequest:
+    properties:
+      id:
+        type: string
+      part_number:
+        type: integer
+      tenant_id:
+        type: string
+    required:
+    - id
+    - part_number
+    - tenant_id
+    type: object
+  httptransport.CompleteMultipartUploadRequest:
+    properties:
+      checksum_sha256:
+        type: string
+      expected_version:
+        type: integer
+      id:
+        type: string
+      parts:
+        items:
+          $ref: '#/definitions/httptransport.CompletedPartRequest'
+        type: array
+      tenant_id:
+        type: string
+    required:
+    - checksum_sha256
+    - expected_version
+    - id
+    - parts
+    - tenant_id
+    type: object
   httptransport.CompleteUploadRequest:
     properties:
       checksum_sha256:
@@ -94,6 +149,16 @@ definitions:
     - expected_version
     - id
     - tenant_id
+    type: object
+  httptransport.CompletedPartRequest:
+    properties:
+      etag:
+        type: string
+      part_number:
+        type: integer
+    required:
+    - etag
+    - part_number
     type: object
   httptransport.DeleteFileRequest:
     properties:
@@ -116,6 +181,30 @@ definitions:
         type: string
     required:
     - id
+    - tenant_id
+    type: object
+  httptransport.InitiateMultipartUploadRequest:
+    properties:
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      filename:
+        type: string
+      idempotency_key:
+        type: string
+      part_size:
+        type: integer
+      size:
+        type: integer
+      tenant_id:
+        type: string
+    required:
+    - checksum_sha256
+    - content_type
+    - filename
+    - idempotency_key
+    - size
     - tenant_id
     type: object
   httptransport.InitiateUploadRequest:
@@ -326,6 +415,102 @@ paths:
       security:
       - Bearer: []
       summary: Initiate a direct object-storage upload
+      tags:
+      - files
+  /api/v1/files/uploads/multipart/abort:
+    post:
+      parameters:
+      - description: Multipart upload version
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.DeleteFileRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      summary: Abort a multipart upload and release its object-storage parts
+      tags:
+      - files
+  /api/v1/files/uploads/multipart/authorize-part:
+    post:
+      parameters:
+      - description: Upload part
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.AuthorizeUploadPartRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Authorization'
+              type: object
+      security:
+      - Bearer: []
+      summary: Create a short-lived URL for one multipart upload part
+      tags:
+      - files
+  /api/v1/files/uploads/multipart/complete:
+    post:
+      parameters:
+      - description: Completed multipart upload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.CompleteMultipartUploadRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.Metadata'
+              type: object
+      security:
+      - Bearer: []
+      summary: Assemble uploaded parts and verify the completed object
+      tags:
+      - files
+  /api/v1/files/uploads/multipart/initiate:
+    post:
+      parameters:
+      - description: Multipart upload metadata
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.InitiateMultipartUploadRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.MultipartAuthorization'
+              type: object
+      security:
+      - Bearer: []
+      summary: Initiate a resumable multipart object-storage upload
       tags:
       - files
   /api/v1/me:

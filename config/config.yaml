@@ -145,6 +145,9 @@ object_storage:
   use_ssl: false
   presign_ttl: 15m
   max_upload_bytes: 1073741824
+  multipart_session_ttl: 24h
+  cleanup_batch_size: 100
+  cleanup_spec: "0 0 * * * *"
   scan_required: false
 
 # Named outbound clients. Put environment-specific endpoints and credentials in

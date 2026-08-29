@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -16,6 +17,7 @@ type Repository interface {
 	GetByKey(context.Context, string, string) (Metadata, error)
 	Insert(context.Context, sqlx.ExtContext, Metadata) error
 	Update(context.Context, sqlx.ExtContext, Metadata, int64) error
+	ListExpiredUploads(context.Context, time.Time, int) ([]Metadata, error)
 	AddOutbox(context.Context, sqlx.ExtContext, OutboxEvent) error
 }
 
@@ -28,7 +30,7 @@ type SQLRepository struct{ db *sqlx.DB }
 
 func NewRepository(db *sqlx.DB) Repository { return &SQLRepository{db: db} }
 
-const columns = `id,tenant_id,owner_id,bucket,object_key,filename,content_type,size,checksum_sha256,status,scan_status,idempotency_key,version,created_at,updated_at,created_by,updated_by`
+const columns = `id,tenant_id,owner_id,bucket,object_key,filename,content_type,size,checksum_sha256,status,scan_status,idempotency_key,upload_mode,multipart_upload_id,part_size,part_count,upload_expires_at,version,created_at,updated_at,created_by,updated_by`
 
 func (r *SQLRepository) Get(ctx context.Context, id, tenant string) (Metadata, error) {
 	var v Metadata
@@ -47,11 +49,11 @@ func (r *SQLRepository) GetByKey(ctx context.Context, tenant, key string) (Metad
 	return v, err
 }
 func (r *SQLRepository) Insert(ctx context.Context, e sqlx.ExtContext, v Metadata) error {
-	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO files (`+columns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), v.ID, v.TenantID, v.OwnerID, v.Bucket, v.ObjectKey, v.Filename, v.ContentType, v.Size, v.ChecksumSHA256, v.Status, v.ScanStatus, v.IdempotencyKey, v.Version, v.CreatedAt, v.UpdatedAt, v.CreatedBy, v.UpdatedBy)
+	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO files (`+columns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), v.ID, v.TenantID, v.OwnerID, v.Bucket, v.ObjectKey, v.Filename, v.ContentType, v.Size, v.ChecksumSHA256, v.Status, v.ScanStatus, v.IdempotencyKey, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.Version, v.CreatedAt, v.UpdatedAt, v.CreatedBy, v.UpdatedBy)
 	return err
 }
 func (r *SQLRepository) Update(ctx context.Context, e sqlx.ExtContext, v Metadata, expected int64) error {
-	result, err := e.ExecContext(ctx, r.db.Rebind(`UPDATE files SET status=?,scan_status=?,checksum_sha256=?,size=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND tenant_id=? AND version=?`), v.Status, v.ScanStatus, v.ChecksumSHA256, v.Size, v.UpdatedAt, v.UpdatedBy, v.ID, v.TenantID, expected)
+	result, err := e.ExecContext(ctx, r.db.Rebind(`UPDATE files SET status=?,scan_status=?,checksum_sha256=?,size=?,upload_mode=?,multipart_upload_id=?,part_size=?,part_count=?,upload_expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND tenant_id=? AND version=?`), v.Status, v.ScanStatus, v.ChecksumSHA256, v.Size, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.UpdatedAt, v.UpdatedBy, v.ID, v.TenantID, expected)
 	if err != nil {
 		return err
 	}
@@ -60,4 +62,9 @@ func (r *SQLRepository) Update(ctx context.Context, e sqlx.ExtContext, v Metadat
 		return ErrStaleVersion
 	}
 	return err
+}
+func (r *SQLRepository) ListExpiredUploads(ctx context.Context, before time.Time, limit int) ([]Metadata, error) {
+	var values []Metadata
+	err := r.db.SelectContext(ctx, &values, r.db.Rebind(`SELECT `+columns+` FROM files WHERE status='pending_upload' AND upload_expires_at IS NOT NULL AND upload_expires_at<=? ORDER BY upload_expires_at,id LIMIT ?`), before, limit)
+	return values, err
 }

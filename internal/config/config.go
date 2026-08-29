@@ -204,17 +204,20 @@ type EventBus struct {
 	DispatchRetryDelay time.Duration `mapstructure:"dispatch_retry_delay"`
 }
 type ObjectStorage struct {
-	Enabled        bool          `mapstructure:"enabled"`
-	Endpoint       string        `mapstructure:"endpoint"`
-	AccessKey      string        `mapstructure:"access_key"`
-	SecretKey      string        `mapstructure:"secret_key"`
-	SessionToken   string        `mapstructure:"session_token"`
-	Bucket         string        `mapstructure:"bucket"`
-	Region         string        `mapstructure:"region"`
-	UseSSL         bool          `mapstructure:"use_ssl"`
-	PresignTTL     time.Duration `mapstructure:"presign_ttl"`
-	MaxUploadBytes int64         `mapstructure:"max_upload_bytes"`
-	ScanRequired   bool          `mapstructure:"scan_required"`
+	Enabled             bool          `mapstructure:"enabled"`
+	Endpoint            string        `mapstructure:"endpoint"`
+	AccessKey           string        `mapstructure:"access_key"`
+	SecretKey           string        `mapstructure:"secret_key"`
+	SessionToken        string        `mapstructure:"session_token"`
+	Bucket              string        `mapstructure:"bucket"`
+	Region              string        `mapstructure:"region"`
+	UseSSL              bool          `mapstructure:"use_ssl"`
+	PresignTTL          time.Duration `mapstructure:"presign_ttl"`
+	MaxUploadBytes      int64         `mapstructure:"max_upload_bytes"`
+	MultipartSessionTTL time.Duration `mapstructure:"multipart_session_ttl"`
+	CleanupBatchSize    int           `mapstructure:"cleanup_batch_size"`
+	CleanupSpec         string        `mapstructure:"cleanup_spec"`
+	ScanRequired        bool          `mapstructure:"scan_required"`
 }
 type Outbound struct {
 	HTTP map[string]HTTPUpstream `mapstructure:"http"`
@@ -440,6 +443,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("object_storage.use_ssl", false)
 	v.SetDefault("object_storage.presign_ttl", "15m")
 	v.SetDefault("object_storage.max_upload_bytes", 1<<30)
+	v.SetDefault("object_storage.multipart_session_ttl", "24h")
+	v.SetDefault("object_storage.cleanup_batch_size", 100)
+	v.SetDefault("object_storage.cleanup_spec", "0 0 * * * *")
 	v.SetDefault("object_storage.scan_required", false)
 	v.SetDefault("outbound.http", map[string]any{})
 	v.SetDefault("outbound.grpc", map[string]any{})
@@ -554,7 +560,7 @@ func (c Config) Validate() error {
 	if c.EventBus.Enabled && (len(c.EventBus.URLs) == 0 || c.EventBus.StreamName == "" || len(c.EventBus.Subjects) == 0 || (c.EventBus.Storage != "file" && c.EventBus.Storage != "memory") || c.EventBus.MaxAge <= 0 || c.EventBus.DuplicateWindow <= 0 || c.EventBus.ConnectTimeout <= 0 || c.EventBus.ReconnectWait <= 0 || c.EventBus.PublishTimeout <= 0 || c.EventBus.ConsumerAckWait <= 0 || c.EventBus.ConsumerMaxDeliver <= 0) {
 		return errors.New("enabled event_bus requires URLs, stream, subjects, valid storage, positive timeouts, and max deliveries")
 	}
-	if c.ObjectStorage.Enabled && (c.ObjectStorage.Endpoint == "" || c.ObjectStorage.AccessKey == "" || c.ObjectStorage.SecretKey == "" || c.ObjectStorage.Bucket == "" || c.ObjectStorage.PresignTTL <= 0 || c.ObjectStorage.MaxUploadBytes <= 0) {
+	if c.ObjectStorage.Enabled && (c.ObjectStorage.Endpoint == "" || c.ObjectStorage.AccessKey == "" || c.ObjectStorage.SecretKey == "" || c.ObjectStorage.Bucket == "" || c.ObjectStorage.PresignTTL <= 0 || c.ObjectStorage.MaxUploadBytes <= 0 || c.ObjectStorage.MultipartSessionTTL <= 0 || c.ObjectStorage.CleanupBatchSize <= 0) {
 		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive limits")
 	}
 	for name, upstream := range c.Outbound.HTTP {

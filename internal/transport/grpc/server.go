@@ -83,6 +83,38 @@ func (s *fileServer) InitiateUpload(ctx context.Context, r *filev1.InitiateUploa
 	}
 	return &filev1.InitiateUploadResponse{File: toProtoFile(v.File), UploadUrl: v.URL, Headers: v.Headers, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
 }
+func (s *fileServer) InitiateMultipartUpload(ctx context.Context, r *filev1.InitiateMultipartUploadRequest) (*filev1.InitiateMultipartUploadResponse, error) {
+	v, err := s.service.InitiateMultipartUpload(ctx, r.GetTenantId(), r.GetFilename(), r.GetContentType(), r.GetSize(), r.GetChecksumSha256(), r.GetIdempotencyKey(), r.GetPartSize())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &filev1.InitiateMultipartUploadResponse{File: toProtoFile(v.File), UploadId: v.UploadID, PartSize: v.PartSize, PartCount: v.PartCount, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
+}
+func (s *fileServer) AuthorizeUploadPart(ctx context.Context, r *filev1.AuthorizeUploadPartRequest) (*filev1.AuthorizeUploadPartResponse, error) {
+	v, err := s.service.AuthorizeUploadPart(ctx, r.GetId(), r.GetTenantId(), r.GetPartNumber())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &filev1.AuthorizeUploadPartResponse{UploadUrl: v.URL, Headers: v.Headers, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
+}
+func (s *fileServer) CompleteMultipartUpload(ctx context.Context, r *filev1.CompleteMultipartUploadRequest) (*filev1.CompleteMultipartUploadResponse, error) {
+	parts := make([]filedomain.CompletedPart, 0, len(r.GetParts()))
+	for _, part := range r.GetParts() {
+		parts = append(parts, filedomain.CompletedPart{PartNumber: part.GetPartNumber(), ETag: part.GetEtag()})
+	}
+	v, err := s.service.CompleteMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetChecksumSha256(), parts, r.GetExpectedVersion())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &filev1.CompleteMultipartUploadResponse{File: toProtoFile(v)}, nil
+}
+func (s *fileServer) AbortMultipartUpload(ctx context.Context, r *filev1.AbortMultipartUploadRequest) (*filev1.AbortMultipartUploadResponse, error) {
+	v, err := s.service.AbortMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetExpectedVersion())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &filev1.AbortMultipartUploadResponse{File: toProtoFile(v)}, nil
+}
 func (s *fileServer) CompleteUpload(ctx context.Context, r *filev1.CompleteUploadRequest) (*filev1.CompleteUploadResponse, error) {
 	v, err := s.service.CompleteUpload(ctx, r.GetId(), r.GetTenantId(), r.GetChecksumSha256(), r.GetExpectedVersion())
 	if err != nil {
@@ -119,7 +151,11 @@ func (s *fileServer) Delete(ctx context.Context, r *filev1.DeleteRequest) (*file
 	return &filev1.DeleteResponse{File: toProtoFile(v)}, nil
 }
 func toProtoFile(v filedomain.Metadata) *filev1.FileMetadata {
-	return &filev1.FileMetadata{Id: v.ID, TenantId: v.TenantID, OwnerId: v.OwnerID, Bucket: v.Bucket, ObjectKey: v.ObjectKey, Filename: v.Filename, ContentType: v.ContentType, Size: v.Size, ChecksumSha256: v.ChecksumSHA256, Status: v.Status, ScanStatus: v.ScanStatus, Version: v.Version, CreatedAt: timestamppb.New(v.CreatedAt), UpdatedAt: timestamppb.New(v.UpdatedAt), CreatedBy: v.CreatedBy, UpdatedBy: v.UpdatedBy}
+	result := &filev1.FileMetadata{Id: v.ID, TenantId: v.TenantID, OwnerId: v.OwnerID, Bucket: v.Bucket, ObjectKey: v.ObjectKey, Filename: v.Filename, ContentType: v.ContentType, Size: v.Size, ChecksumSha256: v.ChecksumSHA256, Status: v.Status, ScanStatus: v.ScanStatus, UploadMode: v.UploadMode, MultipartUploadId: v.MultipartUploadID, PartSize: v.PartSize, PartCount: v.PartCount, Version: v.Version, CreatedAt: timestamppb.New(v.CreatedAt), UpdatedAt: timestamppb.New(v.UpdatedAt), CreatedBy: v.CreatedBy, UpdatedBy: v.UpdatedBy}
+	if v.UploadExpiresAt != nil {
+		result.UploadExpiresAt = timestamppb.New(*v.UploadExpiresAt)
+	}
+	return result
 }
 
 func (s *Server) start(enabled bool) func(context.Context) error {

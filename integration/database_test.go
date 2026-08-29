@@ -70,6 +70,15 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if err != nil || completed.Status != "ready" {
 				t.Fatalf("complete=%+v err=%v", completed, err)
 			}
+			multipartService := filedomain.NewService(filedomain.NewRepository(db), appdb.NewTransactor(db), integrationStorage{info: objectstorage.ObjectInfo{Size: 11 << 20, ChecksumSHA256: checksum}})
+			multipart, err := multipartService.InitiateMultipartUpload(actorCtx, "tenant-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
+			if err != nil || multipart.PartCount != 3 {
+				t.Fatalf("multipart initiate=%+v err=%v", multipart, err)
+			}
+			multipartCompleted, err := multipartService.CompleteMultipartUpload(actorCtx, multipart.File.ID, "tenant-1", checksum, []filedomain.CompletedPart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}, {PartNumber: 3, ETag: "c"}}, multipart.File.Version)
+			if err != nil || multipartCompleted.Status != "ready" {
+				t.Fatalf("multipart complete=%+v err=%v", multipartCompleted, err)
+			}
 			var userTables int
 			if databaseType == "postgres" {
 				if err := db.GetContext(ctx, &userTables, `SELECT count(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = 'users'`); err != nil {
@@ -107,10 +116,20 @@ func (s integrationStorage) Stat(context.Context, string) (objectstorage.ObjectI
 	return s.info, nil
 }
 func (integrationStorage) Delete(context.Context, string) error { return nil }
-func (integrationStorage) Bucket() string                       { return "files" }
-func (integrationStorage) TTL() time.Duration                   { return 15 * time.Minute }
-func (integrationStorage) MaxUploadBytes() int64                { return 1024 }
-func (integrationStorage) Enabled() bool                        { return true }
+func (integrationStorage) InitiateMultipart(context.Context, string, string, string) (string, error) {
+	return "upload-1", nil
+}
+func (integrationStorage) PresignUploadPart(context.Context, string, string, int) (*url.URL, error) {
+	return url.Parse("https://storage/upload-part")
+}
+func (integrationStorage) CompleteMultipart(context.Context, string, string, []objectstorage.CompletedPart) error {
+	return nil
+}
+func (integrationStorage) AbortMultipart(context.Context, string, string) error { return nil }
+func (integrationStorage) Bucket() string                                       { return "files" }
+func (integrationStorage) TTL() time.Duration                                   { return 15 * time.Minute }
+func (integrationStorage) MaxUploadBytes() int64                                { return 1 << 30 }
+func (integrationStorage) Enabled() bool                                        { return true }
 
 func startDatabase(t *testing.T, ctx context.Context, databaseType string) (string, string) {
 	t.Helper()
