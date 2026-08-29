@@ -2,6 +2,7 @@ package file
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"testing"
 	"time"
@@ -49,8 +50,9 @@ func (f *fakeRepository) Update(_ context.Context, _ sqlx.ExtContext, v Metadata
 }
 
 type fakeStorage struct {
-	info    objectstorage.ObjectInfo
-	deletes int
+	info      objectstorage.ObjectInfo
+	deletes   int
+	deleteErr error
 }
 
 func (*fakeStorage) PresignUpload(context.Context, string, string, int64, string) (*url.URL, error) {
@@ -62,7 +64,7 @@ func (*fakeStorage) PresignDownload(context.Context, string) (*url.URL, error) {
 func (s *fakeStorage) Stat(context.Context, string) (objectstorage.ObjectInfo, error) {
 	return s.info, nil
 }
-func (s *fakeStorage) Delete(context.Context, string) error { s.deletes++; return nil }
+func (s *fakeStorage) Delete(context.Context, string) error { s.deletes++; return s.deleteErr }
 func (*fakeStorage) Bucket() string                         { return "files" }
 func (*fakeStorage) TTL() time.Duration                     { return 15 * time.Minute }
 func (*fakeStorage) MaxUploadBytes() int64                  { return 1024 }
@@ -143,5 +145,30 @@ func TestDeleteRejectsMissingPrincipalBeforeStorageSideEffect(t *testing.T) {
 	}
 	if storage.deletes != 0 {
 		t.Fatalf("storage delete calls = %d, want 0", storage.deletes)
+	}
+}
+
+func TestDeletePersistsDeletingBeforeObjectStorageSideEffectAndCanRetry(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Status: "ready", Version: 1}}
+	storage := &fakeStorage{deleteErr: errors.New("temporary outage")}
+	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
+	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user-1"})
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	deleting, err := service.Delete(ctx, "file-1", "tenant-1", 1)
+	if err == nil || deleting.Status != "deleting" || deleting.Version != 2 || repository.file.Status != "deleting" {
+		t.Fatalf("deleting=%+v stored=%+v err=%v", deleting, repository.file, err)
+	}
+	storage.deleteErr = nil
+	mock.ExpectBegin()
+	mock.ExpectCommit()
+	deleted, err := service.Delete(ctx, "file-1", "tenant-1", deleting.Version)
+	if err != nil || deleted.Status != "deleted" || deleted.Version != 3 || storage.deletes != 2 {
+		t.Fatalf("deleted=%+v calls=%d err=%v", deleted, storage.deletes, err)
 	}
 }

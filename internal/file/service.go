@@ -190,8 +190,32 @@ func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
+	if v.Status == "deleted" {
+		return v, nil
+	}
+	if expected < 1 {
+		return Metadata{}, apperror.Invalid("expected_version is required", nil)
+	}
+	if v.Status != "deleting" {
+		v.Status = "deleting"
+		v.UpdatedAt = s.now()
+		v.UpdatedBy = caller.Subject
+		err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+			if err := s.repository.Update(ctx, tx, v, expected); err != nil {
+				return err
+			}
+			v.Version = expected + 1
+			return s.addStatusEvent(ctx, tx, v)
+		})
+		if err != nil {
+			return Metadata{}, translate(err)
+		}
+		expected = v.Version
+	} else {
+		expected = v.Version
+	}
 	if err := s.storage.Delete(ctx, v.ObjectKey); err != nil {
-		return Metadata{}, apperror.Unavailable("object storage unavailable", err)
+		return v, apperror.Unavailable("object storage unavailable; deletion can be retried", err)
 	}
 	v.Status = "deleted"
 	v.UpdatedAt = s.now()
