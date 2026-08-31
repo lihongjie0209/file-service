@@ -6,11 +6,32 @@ import (
 
 	"github.com/lihongjie0209/file-service/internal/auth"
 	"github.com/lihongjie0209/file-service/internal/config"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
+	filev1 "github.com/lihongjie0209/platform-protos/gen/go/platform/file/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+func TestFileGRPCRequirementCoversEveryBusinessMethod(t *testing.T) {
+	t.Parallel()
+	resolve := fileGRPCRequirement(true)
+	methods := []string{filev1.FileService_InitiateUpload_FullMethodName, filev1.FileService_InitiateMultipartUpload_FullMethodName, filev1.FileService_AuthorizeUploadPart_FullMethodName, filev1.FileService_CompleteMultipartUpload_FullMethodName, filev1.FileService_AbortMultipartUpload_FullMethodName, filev1.FileService_CompleteUpload_FullMethodName, filev1.FileService_ReportScanResult_FullMethodName, filev1.FileService_AuthorizeDownload_FullMethodName, filev1.FileService_GetMetadata_FullMethodName, filev1.FileService_Delete_FullMethodName}
+	for _, method := range methods {
+		requirement, ok := resolve(method)
+		if !ok || requirement.Resource == "" || requirement.Action == "" {
+			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)
+		}
+	}
+	scan, _ := resolve(filev1.FileService_ReportScanResult_FullMethodName)
+	if scan.Scope != platformauthz.ScopePlatform {
+		t.Fatalf("scan scope = %q, want platform", scan.Scope)
+	}
+	if _, ok := fileGRPCRequirement(false)(filev1.FileService_GetMetadata_FullMethodName); ok {
+		t.Fatal("disabled authorization must not enforce")
+	}
+}
 
 func TestAuthenticateGRPC_PSKWildcard(t *testing.T) {
 	t.Parallel()

@@ -21,6 +21,7 @@ import (
 	"github.com/lihongjie0209/file-service/internal/idempotency"
 	"github.com/lihongjie0209/file-service/internal/observability"
 	"github.com/lihongjie0209/file-service/internal/requestid"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 
 	filev1 "github.com/lihongjie0209/platform-protos/gen/go/platform/file/v1"
@@ -43,11 +44,11 @@ type Server struct {
 	logger  *slog.Logger
 }
 
-func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, healthService *apphealth.Service, fileService *filedomain.Service, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
+func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, authorizer platformauthz.Authorizer, healthService *apphealth.Service, fileService *filedomain.Service, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
 	options := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(cfg.GRPC.MaxReceiveBytes),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
-		grpc.ChainUnaryInterceptor(environmentInterceptor(cfg.Runtime.ActiveProfile), requestIDInterceptor, idempotencyInterceptor, recoveryInterceptor(logger), authInterceptor(authService, cfg.Auth), metricsInterceptor(metrics, logger)),
+		grpc.ChainUnaryInterceptor(environmentInterceptor(cfg.Runtime.ActiveProfile), requestIDInterceptor, idempotencyInterceptor, recoveryInterceptor(logger), authInterceptor(authService, cfg.Auth), platformauthz.UnaryServerInterceptor(authorizer, fileGRPCRequirement(cfg.Authorization.Enabled)), metricsInterceptor(metrics, logger)),
 		grpc.ChainStreamInterceptor(environmentStreamInterceptor(cfg.Runtime.ActiveProfile), requestIDStreamInterceptor, idempotencyStreamInterceptor, recoveryStreamInterceptor(logger), authStreamInterceptor(authService, cfg.Auth), metricsStreamInterceptor(metrics, logger)),
 	}
 	if cfg.GRPC.TLS.Enabled {
@@ -66,6 +67,28 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, he
 	server := &Server{server: grpcServer, address: cfg.GRPC.Address, logger: logger}
 	lc.Append(fx.Hook{OnStart: server.start(cfg.GRPC.Enabled), OnStop: server.stop})
 	return server, nil
+}
+
+func fileGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
+	return func(method string) (platformauthz.Requirement, bool) {
+		if !enabled {
+			return platformauthz.Requirement{}, false
+		}
+		requirements := map[string]platformauthz.Requirement{
+			filev1.FileService_InitiateUpload_FullMethodName:          {Resource: "file.object", Action: "upload"},
+			filev1.FileService_InitiateMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload"},
+			filev1.FileService_AuthorizeUploadPart_FullMethodName:     {Resource: "file.object", Action: "upload"},
+			filev1.FileService_CompleteMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload"},
+			filev1.FileService_AbortMultipartUpload_FullMethodName:    {Resource: "file.object", Action: "upload"},
+			filev1.FileService_CompleteUpload_FullMethodName:          {Resource: "file.object", Action: "upload"},
+			filev1.FileService_ReportScanResult_FullMethodName:        {Resource: "file.scan", Action: "report", Scope: platformauthz.ScopePlatform},
+			filev1.FileService_AuthorizeDownload_FullMethodName:       {Resource: "file.object", Action: "download"},
+			filev1.FileService_GetMetadata_FullMethodName:             {Resource: "file.object", Action: "read"},
+			filev1.FileService_Delete_FullMethodName:                  {Resource: "file.object", Action: "delete"},
+		}
+		requirement, ok := requirements[method]
+		return requirement, ok
+	}
 }
 
 type fileServer struct {

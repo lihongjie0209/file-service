@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"mime"
 	"net/http"
@@ -18,6 +19,7 @@ import (
 	"github.com/lihongjie0209/file-service/internal/observability"
 	appLimit "github.com/lihongjie0209/file-service/internal/ratelimit"
 	"github.com/lihongjie0209/file-service/internal/requestid"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -219,9 +221,47 @@ func JWT(service *auth.Service, logger *slog.Logger) gin.HandlerFunc {
 			return
 		}
 		c.Set("subject", caller.ID)
-		c.Request = c.Request.WithContext(platformprincipal.WithContext(c.Request.Context(), caller))
+		ctx := platformprincipal.WithContext(c.Request.Context(), caller)
+		c.Request = c.Request.WithContext(platformauthz.WithCallerCredential(ctx, header))
 		c.Next()
 	}
+}
+
+func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *slog.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		requirement, protected := fileHTTPRequirement(c.FullPath())
+		if !enabled || !protected {
+			c.Next()
+			return
+		}
+		if err := platformauthz.Enforce(c.Request.Context(), authorizer, requirement); err != nil {
+			if errors.Is(err, platformauthz.ErrDecisionUnavailable) {
+				Fail(c, logger, apperror.Unavailable("authorization decision is unavailable", err))
+				return
+			}
+			Fail(c, logger, apperror.Forbidden("permission denied"))
+			return
+		}
+		c.Next()
+	}
+}
+
+func fileHTTPRequirement(route string) (platformauthz.Requirement, bool) {
+	requirements := map[string]platformauthz.Requirement{
+		"/api/v1/files/uploads/initiate":                 {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/multipart/initiate":       {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/multipart/authorize-part": {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/multipart/complete":       {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/multipart/abort":          {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/complete":                 {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/scans/report":                     {Resource: "file.scan", Action: "report", Scope: platformauthz.ScopePlatform},
+		"/api/v1/files/metadata/get":                     {Resource: "file.object", Action: "read"},
+		"/api/v1/files/metadata/list":                    {Resource: "file.object", Action: "list"},
+		"/api/v1/files/downloads/authorize":              {Resource: "file.object", Action: "download"},
+		"/api/v1/files/delete":                           {Resource: "file.object", Action: "delete"},
+	}
+	requirement, ok := requirements[route]
+	return requirement, ok
 }
 
 func Authentication(service *auth.Service, logger *slog.Logger, cfg config.Auth) gin.HandlerFunc {
@@ -233,7 +273,8 @@ func Authentication(service *auth.Service, logger *slog.Logger, cfg config.Auth)
 				return
 			}
 			c.Set("subject", "psk")
-			c.Request = c.Request.WithContext(platformprincipal.WithContext(c.Request.Context(), platformprincipal.Principal{ID: "file-service:psk", Type: platformprincipal.TypeServiceAccount}))
+			ctx := platformprincipal.WithContext(c.Request.Context(), platformprincipal.Principal{ID: "file-service:psk", Type: platformprincipal.TypeServiceAccount})
+			c.Request = c.Request.WithContext(platformauthz.WithCallerCredential(ctx, c.GetHeader("Authorization")))
 			c.Next()
 			return
 		}
