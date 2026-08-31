@@ -137,12 +137,14 @@ event_bus:
 object_storage:
   enabled: false
   endpoint: 127.0.0.1:9000
+  presign_endpoint: ""
   access_key: ""
   secret_key: ""
   session_token: ""
   bucket: platform-files
   region: us-east-1
   use_ssl: false
+  presign_use_ssl: false
   presign_ttl: 15m
   max_upload_bytes: 1073741824
   multipart_session_ttl: 24h

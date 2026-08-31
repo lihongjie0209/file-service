@@ -43,6 +43,22 @@ type CompletedPart struct {
 	PartNumber int32  `json:"part_number"`
 	ETag       string `json:"etag"`
 }
+type ListFilter struct {
+	TenantID    string
+	Keyword     string
+	Status      string
+	ScanStatus  string
+	ContentType string
+	OwnerID     string
+	Page        int
+	PageSize    int
+}
+type MetadataPage struct {
+	Files    []Metadata `json:"files"`
+	Total    int64      `json:"total"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+}
 type OutboxEvent struct {
 	ID, Subject                       string
 	Envelope                          []byte

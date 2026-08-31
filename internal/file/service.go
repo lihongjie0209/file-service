@@ -17,8 +17,8 @@ import (
 	"github.com/lihongjie0209/file-service/internal/config"
 	"github.com/lihongjie0209/file-service/internal/database"
 	"github.com/lihongjie0209/file-service/internal/objectstorage"
-	"github.com/lihongjie0209/file-service/internal/principal"
 	"github.com/lihongjie0209/microservice-platform-go/eventbus"
+	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	filev1 "github.com/lihongjie0209/platform-protos/gen/go/platform/file/v1"
 	"go.uber.org/fx"
 	"google.golang.org/protobuf/proto"
@@ -60,9 +60,12 @@ func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentT
 	if !validChecksum(checksum) {
 		return Authorization{}, apperror.Invalid("checksum_sha256 must be 64 hexadecimal characters", nil)
 	}
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Authorization{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Authorization{}, err
 	}
 	if existing, err := s.repository.GetByKey(ctx, tenant, key); err == nil {
 		urlValue, urlErr := s.storage.PresignUpload(ctx, existing.ObjectKey, existing.ContentType, existing.Size, existing.ChecksumSHA256)
@@ -77,7 +80,7 @@ func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentT
 	id := uuid.NewString()
 	objectKey := fmt.Sprintf("%s/%s/%s", tenant, id, filename)
 	expiresAt := now.Add(s.uploadSessionTTL)
-	v := Metadata{ID: id, TenantID: tenant, OwnerID: caller.Subject, Bucket: s.storage.Bucket(), ObjectKey: objectKey, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, Status: "pending_upload", ScanStatus: "pending", IdempotencyKey: key, UploadMode: "single", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: caller.Subject, UpdatedBy: caller.Subject}
+	v := Metadata{ID: id, TenantID: tenant, OwnerID: caller.ID, Bucket: s.storage.Bucket(), ObjectKey: objectKey, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, Status: "pending_upload", ScanStatus: "pending", IdempotencyKey: key, UploadMode: "single", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: caller.ID, UpdatedBy: caller.ID}
 	err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Insert(ctx, tx, v); err != nil {
 			return err
@@ -155,11 +158,14 @@ func (s *Service) validateUpload(ctx context.Context, tenant, filename, contentT
 	if !validChecksum(checksum) {
 		return Metadata{}, apperror.Invalid("checksum_sha256 must be 64 hexadecimal characters", nil)
 	}
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
 	}
-	return Metadata{TenantID: tenant, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, IdempotencyKey: key, CreatedBy: caller.Subject, UpdatedBy: caller.Subject}, nil
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{TenantID: tenant, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, IdempotencyKey: key, CreatedBy: caller.ID, UpdatedBy: caller.ID}, nil
 }
 
 func multipartAuthorization(value Metadata) MultipartAuthorization {
@@ -171,8 +177,12 @@ func multipartAuthorization(value Metadata) MultipartAuthorization {
 }
 
 func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant string, partNumber int32) (Authorization, error) {
-	if _, ok := principal.FromContext(ctx); !ok {
+	caller, ok := platformprincipal.FromContext(ctx)
+	if !ok {
 		return Authorization{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Authorization{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
@@ -189,6 +199,13 @@ func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant string, pa
 }
 
 func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, checksum string, parts []CompletedPart, expected int64) (Metadata, error) {
+	caller, ok := platformprincipal.FromContext(ctx)
+	if !ok {
+		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
+	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
 		return Metadata{}, translate(err)
@@ -217,9 +234,12 @@ func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, check
 }
 
 func (s *Service) AbortMultipartUpload(ctx context.Context, id, tenant string, expected int64) (Metadata, error) {
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
@@ -234,7 +254,7 @@ func (s *Service) AbortMultipartUpload(ctx context.Context, id, tenant string, e
 	if err := s.storage.AbortMultipart(ctx, v.ObjectKey, v.MultipartUploadID); err != nil {
 		return Metadata{}, apperror.Unavailable("abort multipart upload", err)
 	}
-	v.Status, v.UpdatedAt, v.UpdatedBy = "deleted", s.now(), caller.Subject
+	v.Status, v.UpdatedAt, v.UpdatedBy = "deleted", s.now(), caller.ID
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Update(ctx, tx, v, expected); err != nil {
 			return err
@@ -283,9 +303,12 @@ func uploadHeaders(contentType string, size int64, checksum string) map[string]s
 	return map[string]string{"Content-Type": contentType, "Content-Length": fmt.Sprint(size), "X-Amz-Meta-Sha256": checksum}
 }
 func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum string, expected int64) (Metadata, error) {
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
@@ -312,7 +335,7 @@ func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum strin
 		v.ScanStatus = "skipped"
 	}
 	v.UpdatedAt = s.now()
-	v.UpdatedBy = caller.Subject
+	v.UpdatedBy = caller.ID
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Update(ctx, tx, v, expected); err != nil {
 			return err
@@ -324,15 +347,52 @@ func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum strin
 	return v, translate(err)
 }
 func (s *Service) Get(ctx context.Context, id, tenant string) (Metadata, error) {
-	if _, ok := principal.FromContext(ctx); !ok {
+	caller, ok := platformprincipal.FromContext(ctx)
+	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	return v, translate(err)
 }
+func (s *Service) List(ctx context.Context, filter ListFilter) (MetadataPage, error) {
+	caller, ok := platformprincipal.FromContext(ctx)
+	if !ok {
+		return MetadataPage{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	filter.TenantID = strings.TrimSpace(filter.TenantID)
+	if err := enforceTenant(caller, filter.TenantID); err != nil {
+		return MetadataPage{}, err
+	}
+	filter.Keyword = strings.TrimSpace(filter.Keyword)
+	filter.Status = strings.ToLower(strings.TrimSpace(filter.Status))
+	filter.ScanStatus = strings.ToLower(strings.TrimSpace(filter.ScanStatus))
+	filter.ContentType = strings.TrimSpace(filter.ContentType)
+	filter.OwnerID = strings.TrimSpace(filter.OwnerID)
+	if filter.TenantID == "" {
+		return MetadataPage{}, apperror.Invalid("tenant_id is required", nil)
+	}
+	if filter.Page <= 0 {
+		filter.Page = 1
+	}
+	if filter.PageSize <= 0 {
+		filter.PageSize = 20
+	}
+	if filter.PageSize > 100 {
+		return MetadataPage{}, apperror.Invalid("page_size must not exceed 100", nil)
+	}
+	values, total, err := s.repository.List(ctx, filter)
+	return MetadataPage{Files: values, Total: total, Page: filter.Page, PageSize: filter.PageSize}, translate(err)
+}
 func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant string) (Authorization, error) {
-	if _, ok := principal.FromContext(ctx); !ok {
+	caller, ok := platformprincipal.FromContext(ctx)
+	if !ok {
 		return Authorization{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Authorization{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
@@ -348,9 +408,12 @@ func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant string) (Aut
 	return Authorization{File: v, URL: urlValue.String(), ExpiresAt: s.now().Add(s.storage.TTL())}, nil
 }
 func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus string, expected int64) (Metadata, error) {
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated scanner is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
 	}
 	if scanStatus != "clean" && scanStatus != "infected" {
 		return Metadata{}, apperror.Invalid("scan_status must be clean or infected", nil)
@@ -362,7 +425,7 @@ func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus s
 	if v.Status != "ready" || v.ScanStatus != "pending" {
 		return Metadata{}, apperror.Conflict("file is not pending a scan result", nil)
 	}
-	v.ScanStatus, v.UpdatedAt, v.UpdatedBy = scanStatus, s.now(), caller.Subject
+	v.ScanStatus, v.UpdatedAt, v.UpdatedBy = scanStatus, s.now(), caller.ID
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Update(ctx, tx, v, expected); err != nil {
 			return err
@@ -374,9 +437,12 @@ func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus s
 	return v, translate(err)
 }
 func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64) (Metadata, error) {
-	caller, ok := principal.FromContext(ctx)
+	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
+	}
+	if err := enforceTenant(caller, tenant); err != nil {
+		return Metadata{}, err
 	}
 	v, err := s.repository.Get(ctx, id, tenant)
 	if err != nil {
@@ -391,7 +457,7 @@ func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64)
 	if v.Status != "deleting" {
 		v.Status = "deleting"
 		v.UpdatedAt = s.now()
-		v.UpdatedBy = caller.Subject
+		v.UpdatedBy = caller.ID
 		err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 			if err := s.repository.Update(ctx, tx, v, expected); err != nil {
 				return err
@@ -411,7 +477,7 @@ func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64)
 	}
 	v.Status = "deleted"
 	v.UpdatedAt = s.now()
-	v.UpdatedBy = caller.Subject
+	v.UpdatedBy = caller.ID
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Update(ctx, tx, v, expected); err != nil {
 			return err
@@ -437,6 +503,13 @@ func (s *Service) addStatusEvent(ctx context.Context, tx sqlx.ExtContext, value 
 		return err
 	}
 	return s.repository.AddOutbox(ctx, tx, OutboxEvent{ID: envelope.GetEventId(), Subject: "platform.file.status.changed.v1", Envelope: encoded, AvailableAt: value.UpdatedAt, CreatedAt: value.UpdatedAt, UpdatedAt: value.UpdatedAt, CreatedBy: value.UpdatedBy, UpdatedBy: value.UpdatedBy})
+}
+
+func enforceTenant(caller platformprincipal.Principal, requestedTenantID string) error {
+	if caller.Type == platformprincipal.TypeUser && (strings.TrimSpace(caller.TenantID) == "" || caller.TenantID != strings.TrimSpace(requestedTenantID)) {
+		return apperror.Forbidden("tenant access denied")
+	}
+	return nil
 }
 func validChecksum(v string) bool {
 	decoded, err := hex.DecodeString(v)

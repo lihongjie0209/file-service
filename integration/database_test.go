@@ -16,7 +16,7 @@ import (
 	filedomain "github.com/lihongjie0209/file-service/internal/file"
 	"github.com/lihongjie0209/file-service/internal/migration"
 	"github.com/lihongjie0209/file-service/internal/objectstorage"
-	"github.com/lihongjie0209/file-service/internal/principal"
+	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mysql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -61,7 +61,7 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			t.Cleanup(func() { _ = db.Close() })
 			checksum := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			service := filedomain.NewService(filedomain.NewRepository(db), appdb.NewTransactor(db), integrationStorage{info: objectstorage.ObjectInfo{Size: 10, ChecksumSHA256: checksum}})
-			actorCtx := principal.WithContext(ctx, principal.Principal{Subject: "user-1", Method: principal.AuthenticationJWT})
+			actorCtx := platformprincipal.WithContext(ctx, platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 			initiated, err := service.InitiateUpload(actorCtx, "tenant-1", "avatar.png", "image/png", 10, checksum, "upload-1")
 			if err != nil {
 				t.Fatalf("initiate: %v", err)

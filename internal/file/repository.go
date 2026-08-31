@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -15,6 +16,7 @@ var ErrStaleVersion = errors.New("stale file version")
 type Repository interface {
 	Get(context.Context, string, string) (Metadata, error)
 	GetByKey(context.Context, string, string) (Metadata, error)
+	List(context.Context, ListFilter) ([]Metadata, int64, error)
 	Insert(context.Context, sqlx.ExtContext, Metadata) error
 	Update(context.Context, sqlx.ExtContext, Metadata, int64) error
 	ListExpiredUploads(context.Context, time.Time, int) ([]Metadata, error)
@@ -47,6 +49,32 @@ func (r *SQLRepository) GetByKey(ctx context.Context, tenant, key string) (Metad
 		err = ErrNotFound
 	}
 	return v, err
+}
+func (r *SQLRepository) List(ctx context.Context, filter ListFilter) ([]Metadata, int64, error) {
+	where := ` WHERE tenant_id=?`
+	args := []any{filter.TenantID}
+	if filter.Keyword != "" {
+		where += ` AND (LOWER(filename) LIKE ? OR LOWER(id) LIKE ?)`
+		keyword := "%" + strings.ToLower(filter.Keyword) + "%"
+		args = append(args, keyword, keyword)
+	}
+	for _, item := range []struct {
+		column string
+		value  string
+	}{{"status", filter.Status}, {"scan_status", filter.ScanStatus}, {"content_type", filter.ContentType}, {"owner_id", filter.OwnerID}} {
+		if item.value != "" {
+			where += ` AND ` + item.column + `=?`
+			args = append(args, item.value)
+		}
+	}
+	var total int64
+	if err := r.db.GetContext(ctx, &total, r.db.Rebind(`SELECT COUNT(*) FROM files`+where), args...); err != nil {
+		return nil, 0, err
+	}
+	values := make([]Metadata, 0)
+	listArgs := append(append([]any(nil), args...), filter.PageSize, (filter.Page-1)*filter.PageSize)
+	err := r.db.SelectContext(ctx, &values, r.db.Rebind(`SELECT `+columns+` FROM files`+where+` ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`), listArgs...)
+	return values, total, err
 }
 func (r *SQLRepository) Insert(ctx context.Context, e sqlx.ExtContext, v Metadata) error {
 	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO files (`+columns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), v.ID, v.TenantID, v.OwnerID, v.Bucket, v.ObjectKey, v.Filename, v.ContentType, v.Size, v.ChecksumSHA256, v.Status, v.ScanStatus, v.IdempotencyKey, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.Version, v.CreatedAt, v.UpdatedAt, v.CreatedBy, v.UpdatedBy)

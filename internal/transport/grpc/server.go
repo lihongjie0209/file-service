@@ -20,8 +20,8 @@ import (
 	apphealth "github.com/lihongjie0209/file-service/internal/health"
 	"github.com/lihongjie0209/file-service/internal/idempotency"
 	"github.com/lihongjie0209/file-service/internal/observability"
-	"github.com/lihongjie0209/file-service/internal/principal"
 	"github.com/lihongjie0209/file-service/internal/requestid"
+	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 
 	filev1 "github.com/lihongjie0209/platform-protos/gen/go/platform/file/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -202,6 +202,10 @@ func grpcError(err error) error {
 		code = codes.InvalidArgument
 	case apperror.CodeNotFound:
 		code = codes.NotFound
+	case apperror.CodeUnauthorized:
+		code = codes.Unauthenticated
+	case apperror.CodeForbidden:
+		code = codes.PermissionDenied
 	case apperror.CodeConflict:
 		code = codes.Aborted
 	case apperror.CodeDependencyUnavailable:
@@ -265,7 +269,7 @@ func authenticateGRPC(ctx context.Context, method string, service *auth.Service,
 		if len(values) == 0 || !auth.VerifyPSK(values[0], cfg.PSK.Key) {
 			return nil, status.Error(codes.Unauthenticated, "missing or invalid PSK")
 		}
-		return principal.WithContext(ctx, principal.Principal{Subject: "psk", Method: principal.AuthenticationPSK}), nil
+		return platformprincipal.WithContext(ctx, platformprincipal.Principal{ID: "file-service:psk", Type: platformprincipal.TypeServiceAccount}), nil
 	}
 	if auth.MatchesAny(method, cfg.SkipGRPCMethods) {
 		return ctx, nil
@@ -281,7 +285,7 @@ func authenticateGRPC(ctx context.Context, method string, service *auth.Service,
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid or expired token")
 	}
-	return principal.WithContext(ctx, caller), nil
+	return platformprincipal.WithContext(ctx, caller), nil
 }
 
 type contextServerStream struct {

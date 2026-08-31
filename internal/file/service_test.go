@@ -11,7 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lihongjie0209/file-service/internal/database"
 	"github.com/lihongjie0209/file-service/internal/objectstorage"
-	"github.com/lihongjie0209/file-service/internal/principal"
+	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 )
 
 type fakeRepository struct {
@@ -36,6 +36,12 @@ func (f *fakeRepository) GetByKey(context.Context, string, string) (Metadata, er
 		return Metadata{}, ErrNotFound
 	}
 	return f.file, nil
+}
+func (f *fakeRepository) List(context.Context, ListFilter) ([]Metadata, int64, error) {
+	if f.file.ID == "" {
+		return []Metadata{}, 0, nil
+	}
+	return []Metadata{f.file}, 1, nil
 }
 func (f *fakeRepository) Insert(_ context.Context, _ sqlx.ExtContext, v Metadata) error {
 	f.file = v
@@ -102,7 +108,7 @@ func TestUploadLifecycleAndIdempotency(t *testing.T) {
 	service := NewService(repo, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
 	now := time.Date(2026, 8, 30, 8, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
 	service.now = func() time.Time { return now }
-	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user-1"})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
 	first, err := service.InitiateUpload(ctx, "tenant-1", "../avatar.png", "image/png", 10, checksum, "upload-1")
@@ -136,7 +142,7 @@ func TestRequiredScanBlocksDownloadUntilCleanResult(t *testing.T) {
 	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Status: "ready", ScanStatus: "pending", Version: 2}}
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), &fakeStorage{})
 	service.scanRequired = true
-	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "scanner-1"})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "scanner-1", Type: platformprincipal.TypeServiceAccount})
 	if _, err := service.AuthorizeDownload(ctx, "file-1", "tenant-1"); err == nil {
 		t.Fatal("download authorized before clean scan")
 	}
@@ -162,7 +168,7 @@ func TestMultipartUploadLifecycle(t *testing.T) {
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
 	now := time.Date(2026, 8, 30, 8, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
 	service.now = func() time.Time { return now }
-	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user-1"})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
 	initiated, err := service.InitiateMultipartUpload(ctx, "tenant-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
@@ -182,9 +188,30 @@ func TestMultipartUploadLifecycle(t *testing.T) {
 }
 func TestInitiateRejectsInvalidChecksum(t *testing.T) {
 	service := NewService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{})
-	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user"})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user", Type: platformprincipal.TypeUser, TenantID: "tenant"})
 	if _, err := service.InitiateUpload(ctx, "tenant", "a.txt", "text/plain", 1, "bad", "key"); err == nil {
 		t.Fatal("invalid checksum accepted")
+	}
+}
+
+func TestListRejectsCrossTenantRequest(t *testing.T) {
+	service := NewService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
+	if _, err := service.List(ctx, ListFilter{TenantID: "tenant-2"}); err == nil {
+		t.Fatal("List() accepted a cross-tenant request")
+	}
+}
+
+func TestListAppliesPaginationDefaults(t *testing.T) {
+	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1"}}
+	service := NewService(repository, &database.Transactor{}, &fakeStorage{})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
+	page, err := service.List(ctx, ListFilter{TenantID: "tenant-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 1 || page.Page != 1 || page.PageSize != 20 || len(page.Files) != 1 {
+		t.Fatalf("page = %+v", page)
 	}
 }
 
@@ -208,7 +235,7 @@ func TestDeletePersistsDeletingBeforeObjectStorageSideEffectAndCanRetry(t *testi
 	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Status: "ready", Version: 1}}
 	storage := &fakeStorage{deleteErr: errors.New("temporary outage")}
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
-	ctx := principal.WithContext(t.Context(), principal.Principal{Subject: "user-1"})
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
 	deleting, err := service.Delete(ctx, "file-1", "tenant-1", 1)

@@ -71,6 +71,19 @@ definitions:
       version:
         type: integer
     type: object
+  file.MetadataPage:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/file.Metadata'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
   file.MultipartAuthorization:
     properties:
       expires_at:
@@ -229,6 +242,27 @@ definitions:
     - size
     - tenant_id
     type: object
+  httptransport.ListFilesRequest:
+    properties:
+      content_type:
+        type: string
+      keyword:
+        type: string
+      owner_id:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      scan_status:
+        type: string
+      status:
+        type: string
+      tenant_id:
+        type: string
+    required:
+    - tenant_id
+    type: object
   httptransport.MeResponseBody:
     properties:
       subject:
@@ -338,6 +372,34 @@ paths:
       security:
       - Bearer: []
       summary: Get file metadata
+      tags:
+      - files
+  /api/v1/files/metadata/list:
+    post:
+      parameters:
+      - description: File filters and pagination
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListFilesRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/file.MetadataPage'
+              type: object
+        "403":
+          description: 'Code 20003: tenant access denied'
+          schema:
+            $ref: '#/definitions/httptransport.Response'
+      security:
+      - Bearer: []
+      summary: List tenant file metadata
       tags:
       - files
   /api/v1/files/scans/report:

@@ -65,6 +65,16 @@ type FileIDRequest struct {
 	ID       string `json:"id" binding:"required"`
 	TenantID string `json:"tenant_id" binding:"required"`
 }
+type ListFilesRequest struct {
+	TenantID    string `json:"tenant_id" binding:"required"`
+	Keyword     string `json:"keyword"`
+	Status      string `json:"status"`
+	ScanStatus  string `json:"scan_status"`
+	ContentType string `json:"content_type"`
+	OwnerID     string `json:"owner_id"`
+	Page        int    `json:"page"`
+	PageSize    int    `json:"page_size"`
+}
 type DeleteFileRequest struct {
 	ID              string `json:"id" binding:"required"`
 	TenantID        string `json:"tenant_id" binding:"required"`
@@ -303,6 +313,32 @@ func (h *Handler) GetFile(c *gin.Context) {
 		return
 	}
 	OK(c, v)
+}
+
+// ListFiles godoc
+// @Summary List tenant file metadata
+// @Tags files
+// @Security Bearer
+// @Param request body ListFilesRequest true "File filters and pagination"
+// @Success 200 {object} Response{body=file.MetadataPage}
+// @Failure 403 {object} Response "Code 20003: tenant access denied"
+// @Router /api/v1/files/metadata/list [post]
+func (h *Handler) ListFiles(c *gin.Context) {
+	var request ListFilesRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
+		return
+	}
+	page, err := h.files.List(c.Request.Context(), filedomain.ListFilter{
+		TenantID: request.TenantID, Keyword: request.Keyword, Status: request.Status,
+		ScanStatus: request.ScanStatus, ContentType: request.ContentType, OwnerID: request.OwnerID,
+		Page: request.Page, PageSize: request.PageSize,
+	})
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	OK(c, page)
 }
 
 // AuthorizeDownload godoc

@@ -206,12 +206,14 @@ type EventBus struct {
 type ObjectStorage struct {
 	Enabled             bool          `mapstructure:"enabled"`
 	Endpoint            string        `mapstructure:"endpoint"`
+	PresignEndpoint     string        `mapstructure:"presign_endpoint"`
 	AccessKey           string        `mapstructure:"access_key"`
 	SecretKey           string        `mapstructure:"secret_key"`
 	SessionToken        string        `mapstructure:"session_token"`
 	Bucket              string        `mapstructure:"bucket"`
 	Region              string        `mapstructure:"region"`
 	UseSSL              bool          `mapstructure:"use_ssl"`
+	PresignUseSSL       bool          `mapstructure:"presign_use_ssl"`
 	PresignTTL          time.Duration `mapstructure:"presign_ttl"`
 	MaxUploadBytes      int64         `mapstructure:"max_upload_bytes"`
 	MultipartSessionTTL time.Duration `mapstructure:"multipart_session_ttl"`
@@ -434,6 +436,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("event_bus.dispatch_lease", "30s")
 	v.SetDefault("event_bus.dispatch_retry_delay", "5s")
 	v.SetDefault("object_storage.enabled", false)
+	v.SetDefault("object_storage.presign_endpoint", "")
+	v.SetDefault("object_storage.presign_use_ssl", false)
 	v.SetDefault("object_storage.endpoint", "127.0.0.1:9000")
 	v.SetDefault("object_storage.access_key", "")
 	v.SetDefault("object_storage.secret_key", "")
@@ -562,6 +566,9 @@ func (c Config) Validate() error {
 	}
 	if c.ObjectStorage.Enabled && (c.ObjectStorage.Endpoint == "" || c.ObjectStorage.AccessKey == "" || c.ObjectStorage.SecretKey == "" || c.ObjectStorage.Bucket == "" || c.ObjectStorage.PresignTTL <= 0 || c.ObjectStorage.MaxUploadBytes <= 0 || c.ObjectStorage.MultipartSessionTTL <= 0 || c.ObjectStorage.CleanupBatchSize <= 0) {
 		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive limits")
+	}
+	if c.ObjectStorage.Enabled && c.ObjectStorage.PresignEndpoint != "" && c.ObjectStorage.Region == "" {
+		return errors.New("object_storage.region is required with presign_endpoint")
 	}
 	for name, upstream := range c.Outbound.HTTP {
 		if upstream.BaseURL == "" || upstream.Timeout <= 0 {

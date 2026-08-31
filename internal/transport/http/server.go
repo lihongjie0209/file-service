@@ -68,6 +68,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/files/uploads/complete", handler.CompleteUpload)
 	api.POST("/files/scans/report", handler.ReportScanResult)
 	api.POST("/files/metadata/get", handler.GetFile)
+	api.POST("/files/metadata/list", handler.ListFiles)
 	api.POST("/files/downloads/authorize", handler.AuthorizeDownload)
 	api.POST("/files/delete", handler.DeleteFile)
 	server := &http.Server{Addr: cfg.HTTP.Address, Handler: router, ReadTimeout: cfg.HTTP.ReadTimeout, WriteTimeout: cfg.HTTP.WriteTimeout, IdleTimeout: cfg.HTTP.IdleTimeout}

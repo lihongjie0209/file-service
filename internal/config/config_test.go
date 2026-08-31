@@ -90,3 +90,20 @@ func TestLoad_UsesCanonicalPlatformEventStream(t *testing.T) {
 		t.Fatalf("unexpected event stream defaults: %q %#v", cfg.EventBus.StreamName, cfg.EventBus.Subjects)
 	}
 }
+
+func TestConfig_ValidatePresignEndpointRequiresRegion(t *testing.T) {
+	t.Parallel()
+	cfg := Config{
+		HTTP:   HTTP{Address: "127.0.0.1:8080", RequestTimeout: time.Second},
+		Health: Health{DatabaseTimeout: time.Second, RedisTimeout: time.Second},
+		User:   User{CacheTTL: time.Second, LockTTL: time.Second, LockRetryDelay: time.Millisecond},
+		ObjectStorage: ObjectStorage{
+			Enabled: true, Endpoint: "minio:9000", PresignEndpoint: "127.0.0.1:9000",
+			AccessKey: "access", SecretKey: "secret", Bucket: "files", PresignTTL: time.Minute,
+			MaxUploadBytes: 1024, MultipartSessionTTL: time.Hour, CleanupBatchSize: 10,
+		},
+	}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() accepted a public presign endpoint without an explicit region")
+	}
+}

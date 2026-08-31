@@ -6,7 +6,7 @@ import (
 
 	"github.com/lihongjie0209/file-service/internal/auth"
 	"github.com/lihongjie0209/file-service/internal/config"
-	"github.com/lihongjie0209/file-service/internal/principal"
+	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -37,8 +37,8 @@ func TestAuthenticateGRPC_PSKWildcard(t *testing.T) {
 				t.Fatalf("status code = %s, want %s", got, test.code)
 			}
 			if test.code == codes.OK {
-				value, ok := principal.FromContext(authenticated)
-				if !ok || value.Subject != "psk" || value.Method != principal.AuthenticationPSK {
+				value, ok := platformprincipal.FromContext(authenticated)
+				if !ok || value.ID != "file-service:psk" || value.Type != platformprincipal.TypeServiceAccount {
 					t.Fatalf("principal = %#v, %v", value, ok)
 				}
 			}
@@ -59,8 +59,8 @@ func TestAuthenticateGRPC_JWTInjectsPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	value, ok := principal.FromContext(ctx)
-	if !ok || value.Subject != "user-1" || value.Method != principal.AuthenticationJWT {
+	value, ok := platformprincipal.FromContext(ctx)
+	if !ok || value.ID != "user-1" || value.Type != platformprincipal.TypeUser {
 		t.Fatalf("principal = %#v, %v", value, ok)
 	}
 }

@@ -147,6 +147,56 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/files/metadata/list": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "tags": [
+                    "files"
+                ],
+                "summary": "List tenant file metadata",
+                "parameters": [
+                    {
+                        "description": "File filters and pagination",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.ListFilesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/httptransport.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "body": {
+                                            "$ref": "#/definitions/file.MetadataPage"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "403": {
+                        "description": "Code 20003: tenant access denied",
+                        "schema": {
+                            "$ref": "#/definitions/httptransport.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/files/scans/report": {
             "post": {
                 "security": [
@@ -727,6 +777,26 @@ const docTemplate = `{
                 }
             }
         },
+        "file.MetadataPage": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/file.Metadata"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
         "file.MultipartAuthorization": {
             "type": "object",
             "properties": {
@@ -952,6 +1022,38 @@ const docTemplate = `{
                 },
                 "size": {
                     "type": "integer"
+                },
+                "tenant_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.ListFilesRequest": {
+            "type": "object",
+            "required": [
+                "tenant_id"
+            ],
+            "properties": {
+                "content_type": {
+                    "type": "string"
+                },
+                "keyword": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "scan_status": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
                 },
                 "tenant_id": {
                     "type": "string"

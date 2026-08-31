@@ -37,8 +37,9 @@ type Storage interface {
 	Enabled() bool
 }
 type S3 struct {
-	client *minio.Client
-	cfg    config.ObjectStorage
+	client        *minio.Client
+	presignClient *minio.Client
+	cfg           config.ObjectStorage
 }
 
 func New(cfg config.Config) (Storage, error) {
@@ -50,7 +51,14 @@ func New(cfg config.Config) (Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &S3{client: client, cfg: c}, nil
+	presignClient := client
+	if c.PresignEndpoint != "" && (c.PresignEndpoint != c.Endpoint || c.PresignUseSSL != c.UseSSL) {
+		presignClient, err = minio.New(c.PresignEndpoint, &minio.Options{Creds: credentials.NewStaticV4(c.AccessKey, c.SecretKey, c.SessionToken), Secure: c.PresignUseSSL, Region: c.Region})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &S3{client: client, presignClient: presignClient, cfg: c}, nil
 }
 func (s *S3) Enabled() bool         { return s != nil && s.cfg.Enabled }
 func (s *S3) Bucket() string        { return s.cfg.Bucket }
@@ -64,13 +72,13 @@ func (s *S3) PresignUpload(ctx context.Context, key, contentType string, size in
 	headers.Set("Content-Type", contentType)
 	headers.Set("Content-Length", strconv.FormatInt(size, 10))
 	headers.Set("X-Amz-Meta-Sha256", checksum)
-	return s.client.PresignHeader(ctx, http.MethodPut, s.cfg.Bucket, key, s.cfg.PresignTTL, nil, headers)
+	return s.presignClient.PresignHeader(ctx, http.MethodPut, s.cfg.Bucket, key, s.cfg.PresignTTL, nil, headers)
 }
 func (s *S3) PresignDownload(ctx context.Context, key string) (*url.URL, error) {
 	if !s.Enabled() {
 		return nil, errors.New("object storage is disabled")
 	}
-	return s.client.PresignedGetObject(ctx, s.cfg.Bucket, key, s.cfg.PresignTTL, nil)
+	return s.presignClient.PresignedGetObject(ctx, s.cfg.Bucket, key, s.cfg.PresignTTL, nil)
 }
 func (s *S3) Stat(ctx context.Context, key string) (ObjectInfo, error) {
 	if !s.Enabled() {
@@ -97,7 +105,7 @@ func (s *S3) PresignUploadPart(ctx context.Context, key, uploadID string, partNu
 		return nil, errors.New("object storage is disabled")
 	}
 	params := url.Values{"uploadId": {uploadID}, "partNumber": {strconv.Itoa(partNumber)}}
-	return s.client.Presign(ctx, http.MethodPut, s.cfg.Bucket, key, s.cfg.PresignTTL, params)
+	return s.presignClient.Presign(ctx, http.MethodPut, s.cfg.Bucket, key, s.cfg.PresignTTL, params)
 }
 func (s *S3) CompleteMultipart(ctx context.Context, key, uploadID string, parts []CompletedPart) error {
 	if !s.Enabled() {
