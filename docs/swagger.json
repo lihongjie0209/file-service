@@ -709,6 +709,9 @@
         "file.Metadata": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "bucket": {
                     "type": "string"
                 },
@@ -842,11 +845,15 @@
         "httptransport.AuthorizeUploadPartRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "id",
                 "part_number",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -861,6 +868,7 @@
         "httptransport.CompleteMultipartUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "expected_version",
                 "id",
@@ -868,6 +876,9 @@
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -891,12 +902,16 @@
         "httptransport.CompleteUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "expected_version",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -929,11 +944,15 @@
         "httptransport.DeleteFileRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "expected_version",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "expected_version": {
                     "type": "integer"
                 },
@@ -948,10 +967,14 @@
         "httptransport.FileIDRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -963,6 +986,7 @@
         "httptransport.InitiateMultipartUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "content_type",
                 "filename",
@@ -971,6 +995,9 @@
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -997,6 +1024,7 @@
         "httptransport.InitiateUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "content_type",
                 "filename",
@@ -1005,6 +1033,9 @@
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -1028,9 +1059,13 @@
         "httptransport.ListFilesRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "content_type": {
                     "type": "string"
                 },
@@ -1068,12 +1103,16 @@
         "httptransport.ReportScanResultRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "expected_version",
                 "id",
                 "scan_status",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "expected_version": {
                     "type": "integer"
                 },

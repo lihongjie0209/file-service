@@ -1,0 +1,1 @@
+ALTER TABLE files MODIFY COLUMN application_id VARCHAR(191) NOT NULL, ADD CONSTRAINT chk_files_application_nonempty CHECK(application_id <> ''), DROP INDEX files_idempotency_uq, ADD UNIQUE KEY files_scope_idempotency_uq(tenant_id,application_id,idempotency_key), DROP INDEX files_tenant_owner_idx;

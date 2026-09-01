@@ -28,6 +28,8 @@ definitions:
     type: object
   file.Metadata:
     properties:
+      application_id:
+        type: string
       bucket:
         type: string
       checksum_sha256:
@@ -115,6 +117,8 @@ definitions:
     type: object
   httptransport.AuthorizeUploadPartRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       part_number:
@@ -122,12 +126,15 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - id
     - part_number
     - tenant_id
     type: object
   httptransport.CompleteMultipartUploadRequest:
     properties:
+      application_id:
+        type: string
       checksum_sha256:
         type: string
       expected_version:
@@ -141,6 +148,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - checksum_sha256
     - expected_version
     - id
@@ -149,6 +157,8 @@ definitions:
     type: object
   httptransport.CompleteUploadRequest:
     properties:
+      application_id:
+        type: string
       checksum_sha256:
         type: string
       expected_version:
@@ -158,6 +168,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - checksum_sha256
     - expected_version
     - id
@@ -175,6 +186,8 @@ definitions:
     type: object
   httptransport.DeleteFileRequest:
     properties:
+      application_id:
+        type: string
       expected_version:
         type: integer
       id:
@@ -182,22 +195,28 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - expected_version
     - id
     - tenant_id
     type: object
   httptransport.FileIDRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       tenant_id:
         type: string
     required:
+    - application_id
     - id
     - tenant_id
     type: object
   httptransport.InitiateMultipartUploadRequest:
     properties:
+      application_id:
+        type: string
       checksum_sha256:
         type: string
       content_type:
@@ -213,6 +232,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - checksum_sha256
     - content_type
     - filename
@@ -222,6 +242,8 @@ definitions:
     type: object
   httptransport.InitiateUploadRequest:
     properties:
+      application_id:
+        type: string
       checksum_sha256:
         type: string
       content_type:
@@ -235,6 +257,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - checksum_sha256
     - content_type
     - filename
@@ -244,6 +267,8 @@ definitions:
     type: object
   httptransport.ListFilesRequest:
     properties:
+      application_id:
+        type: string
       content_type:
         type: string
       keyword:
@@ -261,6 +286,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - tenant_id
     type: object
   httptransport.MeResponseBody:
@@ -270,6 +296,8 @@ definitions:
     type: object
   httptransport.ReportScanResultRequest:
     properties:
+      application_id:
+        type: string
       expected_version:
         type: integer
       id:
@@ -279,6 +307,7 @@ definitions:
       tenant_id:
         type: string
     required:
+    - application_id
     - expected_version
     - id
     - scan_status

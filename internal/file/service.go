@@ -17,6 +17,7 @@ import (
 	"github.com/lihongjie0209/file-service/internal/config"
 	"github.com/lihongjie0209/file-service/internal/database"
 	"github.com/lihongjie0209/file-service/internal/objectstorage"
+	"github.com/lihongjie0209/microservice-platform-go/appaccess"
 	"github.com/lihongjie0209/microservice-platform-go/eventbus"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 	filev1 "github.com/lihongjie0209/platform-protos/gen/go/platform/file/v1"
@@ -33,25 +34,35 @@ type Service struct {
 	scanRequired     bool
 	uploadSessionTTL time.Duration
 	cleanupBatchSize int
+	applications     appaccess.Verifier
 }
 
+type allowAllApplications struct{}
+
+func (allowAllApplications) Verify(context.Context, string, string) error { return nil }
+
 func NewService(r Repository, t *database.Transactor, s objectstorage.Storage) *Service {
-	return &Service{repository: r, transactor: t, storage: s, now: time.Now, uploadSessionTTL: 24 * time.Hour, cleanupBatchSize: 100}
+	return &Service{repository: r, transactor: t, storage: s, applications: allowAllApplications{}, now: time.Now, uploadSessionTTL: 24 * time.Hour, cleanupBatchSize: 100}
 }
-func NewRuntimeService(r Repository, t *database.Transactor, s objectstorage.Storage, cfg config.Config) *Service {
+func NewRuntimeService(r Repository, t *database.Transactor, s objectstorage.Storage, cfg config.Config, applications appaccess.Verifier) (*Service, error) {
+	if applications == nil {
+		return nil, errors.New("application verifier is required")
+	}
 	service := NewService(r, t, s)
+	service.applications = applications
 	service.scanRequired = cfg.ObjectStorage.ScanRequired
 	service.uploadSessionTTL = cfg.ObjectStorage.MultipartSessionTTL
 	service.cleanupBatchSize = cfg.ObjectStorage.CleanupBatchSize
-	return service
+	return service, nil
 }
-func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentType string, size int64, checksum, key string) (Authorization, error) {
+func (s *Service) InitiateUpload(ctx context.Context, tenant, application, filename, contentType string, size int64, checksum, key string) (Authorization, error) {
 	tenant = strings.TrimSpace(tenant)
+	application = strings.TrimSpace(application)
 	filename = filepath.Base(strings.TrimSpace(filename))
 	contentType = strings.TrimSpace(contentType)
 	checksum = strings.ToLower(strings.TrimSpace(checksum))
 	key = strings.TrimSpace(key)
-	if tenant == "" || filename == "" || filename == "." || key == "" || size <= 0 || s.storage == nil || !s.storage.Enabled() || size > s.storage.MaxUploadBytes() {
+	if tenant == "" || application == "" || filename == "" || filename == "." || key == "" || size <= 0 || s.storage == nil || !s.storage.Enabled() || size > s.storage.MaxUploadBytes() {
 		return Authorization{}, apperror.Invalid("invalid upload request or object storage unavailable", nil)
 	}
 	if _, _, err := mime.ParseMediaType(contentType); err != nil {
@@ -67,7 +78,10 @@ func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentT
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Authorization{}, err
 	}
-	if existing, err := s.repository.GetByKey(ctx, tenant, key); err == nil {
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Authorization{}, err
+	}
+	if existing, err := s.repository.GetByKey(ctx, tenant, application, key); err == nil {
 		urlValue, urlErr := s.storage.PresignUpload(ctx, existing.ObjectKey, existing.ContentType, existing.Size, existing.ChecksumSHA256)
 		if urlErr != nil {
 			return Authorization{}, apperror.Unavailable("object storage unavailable", urlErr)
@@ -78,9 +92,9 @@ func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentT
 	}
 	now := s.now()
 	id := uuid.NewString()
-	objectKey := fmt.Sprintf("%s/%s/%s", tenant, id, filename)
+	objectKey := fmt.Sprintf("%s/%s/%s/%s", tenant, application, id, filename)
 	expiresAt := now.Add(s.uploadSessionTTL)
-	v := Metadata{ID: id, TenantID: tenant, OwnerID: caller.ID, Bucket: s.storage.Bucket(), ObjectKey: objectKey, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, Status: "pending_upload", ScanStatus: "pending", IdempotencyKey: key, UploadMode: "single", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: caller.ID, UpdatedBy: caller.ID}
+	v := Metadata{ID: id, TenantID: tenant, ApplicationID: application, OwnerID: caller.ID, Bucket: s.storage.Bucket(), ObjectKey: objectKey, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, Status: "pending_upload", ScanStatus: "pending", IdempotencyKey: key, UploadMode: "single", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: caller.ID, UpdatedBy: caller.ID}
 	err := s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		if err := s.repository.Insert(ctx, tx, v); err != nil {
 			return err
@@ -96,7 +110,7 @@ func (s *Service) InitiateUpload(ctx context.Context, tenant, filename, contentT
 	}
 	return Authorization{File: v, URL: urlValue.String(), Headers: uploadHeaders(contentType, size, checksum), ExpiresAt: now.Add(s.storage.TTL())}, nil
 }
-func (s *Service) InitiateMultipartUpload(ctx context.Context, tenant, filename, contentType string, size int64, checksum, key string, partSize int64) (MultipartAuthorization, error) {
+func (s *Service) InitiateMultipartUpload(ctx context.Context, tenant, application, filename, contentType string, size int64, checksum, key string, partSize int64) (MultipartAuthorization, error) {
 	if partSize == 0 {
 		partSize = 8 << 20
 	}
@@ -107,11 +121,11 @@ func (s *Service) InitiateMultipartUpload(ctx context.Context, tenant, filename,
 	if size <= 0 || partCount < 1 || partCount > 10000 {
 		return MultipartAuthorization{}, apperror.Invalid("multipart upload requires between 1 and 10000 parts", nil)
 	}
-	base, err := s.validateUpload(ctx, tenant, filename, contentType, size, checksum, key)
+	base, err := s.validateUpload(ctx, tenant, application, filename, contentType, size, checksum, key)
 	if err != nil {
 		return MultipartAuthorization{}, err
 	}
-	if existing, getErr := s.repository.GetByKey(ctx, base.TenantID, base.IdempotencyKey); getErr == nil {
+	if existing, getErr := s.repository.GetByKey(ctx, base.TenantID, base.ApplicationID, base.IdempotencyKey); getErr == nil {
 		if existing.UploadMode != "multipart" || existing.Status != "pending_upload" {
 			return MultipartAuthorization{}, apperror.Conflict("idempotency key belongs to another upload", nil)
 		}
@@ -121,7 +135,7 @@ func (s *Service) InitiateMultipartUpload(ctx context.Context, tenant, filename,
 	}
 	now := s.now()
 	base.ID = uuid.NewString()
-	base.ObjectKey = fmt.Sprintf("%s/%s/%s", base.TenantID, base.ID, base.Filename)
+	base.ObjectKey = fmt.Sprintf("%s/%s/%s/%s", base.TenantID, base.ApplicationID, base.ID, base.Filename)
 	base.Bucket, base.OwnerID = s.storage.Bucket(), base.CreatedBy
 	base.Status, base.ScanStatus, base.UploadMode = "pending_upload", "pending", "multipart"
 	base.PartSize, base.PartCount, base.Version = partSize, int32(partCount), 1
@@ -146,10 +160,11 @@ func (s *Service) InitiateMultipartUpload(ctx context.Context, tenant, filename,
 	return multipartAuthorization(base), nil
 }
 
-func (s *Service) validateUpload(ctx context.Context, tenant, filename, contentType string, size int64, checksum, key string) (Metadata, error) {
+func (s *Service) validateUpload(ctx context.Context, tenant, application, filename, contentType string, size int64, checksum, key string) (Metadata, error) {
 	tenant, filename = strings.TrimSpace(tenant), filepath.Base(strings.TrimSpace(filename))
+	application = strings.TrimSpace(application)
 	contentType, checksum, key = strings.TrimSpace(contentType), strings.ToLower(strings.TrimSpace(checksum)), strings.TrimSpace(key)
-	if tenant == "" || filename == "" || filename == "." || key == "" || size <= 0 || s.storage == nil || !s.storage.Enabled() || size > s.storage.MaxUploadBytes() {
+	if tenant == "" || application == "" || filename == "" || filename == "." || key == "" || size <= 0 || s.storage == nil || !s.storage.Enabled() || size > s.storage.MaxUploadBytes() {
 		return Metadata{}, apperror.Invalid("invalid upload request or object storage unavailable", nil)
 	}
 	if _, _, err := mime.ParseMediaType(contentType); err != nil {
@@ -165,7 +180,10 @@ func (s *Service) validateUpload(ctx context.Context, tenant, filename, contentT
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	return Metadata{TenantID: tenant, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, IdempotencyKey: key, CreatedBy: caller.ID, UpdatedBy: caller.ID}, nil
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	return Metadata{TenantID: tenant, ApplicationID: application, Filename: filename, ContentType: contentType, Size: size, ChecksumSHA256: checksum, IdempotencyKey: key, CreatedBy: caller.ID, UpdatedBy: caller.ID}, nil
 }
 
 func multipartAuthorization(value Metadata) MultipartAuthorization {
@@ -176,7 +194,7 @@ func multipartAuthorization(value Metadata) MultipartAuthorization {
 	return MultipartAuthorization{File: value, UploadID: value.MultipartUploadID, PartSize: value.PartSize, PartCount: value.PartCount, ExpiresAt: expiresAt}
 }
 
-func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant string, partNumber int32) (Authorization, error) {
+func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant, application string, partNumber int32) (Authorization, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Authorization{}, apperror.Unauthorized("authenticated actor is required")
@@ -184,7 +202,10 @@ func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant string, pa
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Authorization{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Authorization{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Authorization{}, translate(err)
 	}
@@ -198,7 +219,7 @@ func (s *Service) AuthorizeUploadPart(ctx context.Context, id, tenant string, pa
 	return Authorization{File: v, URL: urlValue.String(), ExpiresAt: s.now().Add(s.storage.TTL())}, nil
 }
 
-func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, checksum string, parts []CompletedPart, expected int64) (Metadata, error) {
+func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, application, checksum string, parts []CompletedPart, expected int64) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
@@ -206,7 +227,10 @@ func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, check
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
@@ -230,10 +254,10 @@ func (s *Service) CompleteMultipartUpload(ctx context.Context, id, tenant, check
 	if err := s.storage.CompleteMultipart(ctx, v.ObjectKey, v.MultipartUploadID, storageParts); err != nil {
 		return Metadata{}, apperror.Unavailable("complete multipart upload", err)
 	}
-	return s.CompleteUpload(ctx, id, tenant, checksum, expected)
+	return s.CompleteUpload(ctx, id, tenant, application, checksum, expected)
 }
 
-func (s *Service) AbortMultipartUpload(ctx context.Context, id, tenant string, expected int64) (Metadata, error) {
+func (s *Service) AbortMultipartUpload(ctx context.Context, id, tenant, application string, expected int64) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
@@ -241,7 +265,10 @@ func (s *Service) AbortMultipartUpload(ctx context.Context, id, tenant string, e
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
@@ -302,7 +329,7 @@ func (s *Service) CleanupExpiredUploads(ctx context.Context) (int, error) {
 func uploadHeaders(contentType string, size int64, checksum string) map[string]string {
 	return map[string]string{"Content-Type": contentType, "Content-Length": fmt.Sprint(size), "X-Amz-Meta-Sha256": checksum}
 }
-func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum string, expected int64) (Metadata, error) {
+func (s *Service) CompleteUpload(ctx context.Context, id, tenant, application, checksum string, expected int64) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
@@ -310,7 +337,10 @@ func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum strin
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
@@ -346,7 +376,7 @@ func (s *Service) CompleteUpload(ctx context.Context, id, tenant, checksum strin
 	v.Version = expected + 1
 	return v, translate(err)
 }
-func (s *Service) Get(ctx context.Context, id, tenant string) (Metadata, error) {
+func (s *Service) Get(ctx context.Context, id, tenant, application string) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
@@ -354,7 +384,10 @@ func (s *Service) Get(ctx context.Context, id, tenant string) (Metadata, error) 
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	return v, translate(err)
 }
 func (s *Service) List(ctx context.Context, filter ListFilter) (MetadataPage, error) {
@@ -363,6 +396,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) (MetadataPage, er
 		return MetadataPage{}, apperror.Unauthorized("authenticated actor is required")
 	}
 	filter.TenantID = strings.TrimSpace(filter.TenantID)
+	filter.ApplicationID = strings.TrimSpace(filter.ApplicationID)
 	if err := enforceTenant(caller, filter.TenantID); err != nil {
 		return MetadataPage{}, err
 	}
@@ -371,8 +405,8 @@ func (s *Service) List(ctx context.Context, filter ListFilter) (MetadataPage, er
 	filter.ScanStatus = strings.ToLower(strings.TrimSpace(filter.ScanStatus))
 	filter.ContentType = strings.TrimSpace(filter.ContentType)
 	filter.OwnerID = strings.TrimSpace(filter.OwnerID)
-	if filter.TenantID == "" {
-		return MetadataPage{}, apperror.Invalid("tenant_id is required", nil)
+	if err := s.verifyApplication(ctx, filter.TenantID, filter.ApplicationID); err != nil {
+		return MetadataPage{}, err
 	}
 	if filter.Page <= 0 {
 		filter.Page = 1
@@ -386,7 +420,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) (MetadataPage, er
 	values, total, err := s.repository.List(ctx, filter)
 	return MetadataPage{Files: values, Total: total, Page: filter.Page, PageSize: filter.PageSize}, translate(err)
 }
-func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant string) (Authorization, error) {
+func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant, application string) (Authorization, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Authorization{}, apperror.Unauthorized("authenticated actor is required")
@@ -394,7 +428,10 @@ func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant string) (Aut
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Authorization{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Authorization{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Authorization{}, translate(err)
 	}
@@ -407,7 +444,7 @@ func (s *Service) AuthorizeDownload(ctx context.Context, id, tenant string) (Aut
 	}
 	return Authorization{File: v, URL: urlValue.String(), ExpiresAt: s.now().Add(s.storage.TTL())}, nil
 }
-func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus string, expected int64) (Metadata, error) {
+func (s *Service) ReportScanResult(ctx context.Context, id, tenant, application, scanStatus string, expected int64) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated scanner is required")
@@ -418,7 +455,10 @@ func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus s
 	if scanStatus != "clean" && scanStatus != "infected" {
 		return Metadata{}, apperror.Invalid("scan_status must be clean or infected", nil)
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
@@ -436,7 +476,7 @@ func (s *Service) ReportScanResult(ctx context.Context, id, tenant, scanStatus s
 	v.Version = expected + 1
 	return v, translate(err)
 }
-func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64) (Metadata, error) {
+func (s *Service) Delete(ctx context.Context, id, tenant, application string, expected int64) (Metadata, error) {
 	caller, ok := platformprincipal.FromContext(ctx)
 	if !ok {
 		return Metadata{}, apperror.Unauthorized("authenticated actor is required")
@@ -444,7 +484,10 @@ func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64)
 	if err := enforceTenant(caller, tenant); err != nil {
 		return Metadata{}, err
 	}
-	v, err := s.repository.Get(ctx, id, tenant)
+	if err := s.verifyApplication(ctx, tenant, application); err != nil {
+		return Metadata{}, err
+	}
+	v, err := s.repository.Get(ctx, id, tenant, application)
 	if err != nil {
 		return Metadata{}, translate(err)
 	}
@@ -489,12 +532,12 @@ func (s *Service) Delete(ctx context.Context, id, tenant string, expected int64)
 	return v, translate(err)
 }
 func (s *Service) addStatusEvent(ctx context.Context, tx sqlx.ExtContext, value Metadata) error {
-	fileMetadata := &filev1.FileMetadata{Id: value.ID, TenantId: value.TenantID, OwnerId: value.OwnerID, Bucket: value.Bucket, ObjectKey: value.ObjectKey, Filename: value.Filename, ContentType: value.ContentType, Size: value.Size, ChecksumSha256: value.ChecksumSHA256, Status: value.Status, ScanStatus: value.ScanStatus, UploadMode: value.UploadMode, PartSize: value.PartSize, PartCount: value.PartCount, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
+	fileMetadata := &filev1.FileMetadata{Id: value.ID, TenantId: value.TenantID, ApplicationId: value.ApplicationID, OwnerId: value.OwnerID, Bucket: value.Bucket, ObjectKey: value.ObjectKey, Filename: value.Filename, ContentType: value.ContentType, Size: value.Size, ChecksumSha256: value.ChecksumSHA256, Status: value.Status, ScanStatus: value.ScanStatus, UploadMode: value.UploadMode, PartSize: value.PartSize, PartCount: value.PartCount, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
 	if value.UploadExpiresAt != nil {
 		fileMetadata.UploadExpiresAt = timestamppb.New(*value.UploadExpiresAt)
 	}
 	payload := &filev1.FileStatusChangedEvent{File: fileMetadata}
-	envelope, err := eventbus.NewEnvelope(eventbus.Metadata{EventID: uuid.NewString(), EventType: "platform.file.v1.FileStatusChanged", AggregateID: value.ID, AggregateType: "file", TenantID: value.TenantID, SchemaVersion: 1, ActorID: value.UpdatedBy, OccurredAt: value.UpdatedAt}, payload)
+	envelope, err := eventbus.NewEnvelope(eventbus.Metadata{EventID: uuid.NewString(), EventType: "platform.file.v1.FileStatusChanged", AggregateID: value.ID, AggregateType: "file", TenantID: value.TenantID, ApplicationID: value.ApplicationID, SchemaVersion: 1, ActorID: value.UpdatedBy, OccurredAt: value.UpdatedAt}, payload)
 	if err != nil {
 		return err
 	}
@@ -508,6 +551,20 @@ func (s *Service) addStatusEvent(ctx context.Context, tx sqlx.ExtContext, value 
 func enforceTenant(caller platformprincipal.Principal, requestedTenantID string) error {
 	if caller.Type == platformprincipal.TypeUser && (strings.TrimSpace(caller.TenantID) == "" || caller.TenantID != strings.TrimSpace(requestedTenantID)) {
 		return apperror.Forbidden("tenant access denied")
+	}
+	return nil
+}
+
+func (s *Service) verifyApplication(ctx context.Context, tenantID, applicationID string) error {
+	tenantID, applicationID = strings.TrimSpace(tenantID), strings.TrimSpace(applicationID)
+	if tenantID == "" || applicationID == "" {
+		return apperror.Invalid("tenant_id and application_id are required", nil)
+	}
+	if err := s.applications.Verify(ctx, tenantID, applicationID); err != nil {
+		if errors.Is(err, appaccess.ErrNotGranted) {
+			return apperror.Forbidden("application access denied")
+		}
+		return apperror.Unavailable("application access verification unavailable", err)
 	}
 	return nil
 }

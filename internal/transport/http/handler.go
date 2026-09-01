@@ -23,6 +23,7 @@ func NewHandler(healthService *health.Service, fileService *filedomain.Service, 
 
 type InitiateUploadRequest struct {
 	TenantID       string `json:"tenant_id" binding:"required"`
+	ApplicationID  string `json:"application_id" binding:"required"`
 	Filename       string `json:"filename" binding:"required"`
 	ContentType    string `json:"content_type" binding:"required"`
 	Size           int64  `json:"size" binding:"required"`
@@ -32,6 +33,7 @@ type InitiateUploadRequest struct {
 type CompleteUploadRequest struct {
 	ID              string `json:"id" binding:"required"`
 	TenantID        string `json:"tenant_id" binding:"required"`
+	ApplicationID   string `json:"application_id" binding:"required"`
 	ChecksumSHA256  string `json:"checksum_sha256" binding:"required"`
 	ExpectedVersion int64  `json:"expected_version" binding:"required"`
 }
@@ -40,9 +42,10 @@ type InitiateMultipartUploadRequest struct {
 	PartSize int64 `json:"part_size"`
 }
 type AuthorizeUploadPartRequest struct {
-	ID         string `json:"id" binding:"required"`
-	TenantID   string `json:"tenant_id" binding:"required"`
-	PartNumber int32  `json:"part_number" binding:"required"`
+	ID            string `json:"id" binding:"required"`
+	TenantID      string `json:"tenant_id" binding:"required"`
+	ApplicationID string `json:"application_id" binding:"required"`
+	PartNumber    int32  `json:"part_number" binding:"required"`
 }
 type CompletedPartRequest struct {
 	PartNumber int32  `json:"part_number" binding:"required"`
@@ -51,6 +54,7 @@ type CompletedPartRequest struct {
 type CompleteMultipartUploadRequest struct {
 	ID              string                 `json:"id" binding:"required"`
 	TenantID        string                 `json:"tenant_id" binding:"required"`
+	ApplicationID   string                 `json:"application_id" binding:"required"`
 	Parts           []CompletedPartRequest `json:"parts" binding:"required"`
 	ChecksumSHA256  string                 `json:"checksum_sha256" binding:"required"`
 	ExpectedVersion int64                  `json:"expected_version" binding:"required"`
@@ -58,26 +62,30 @@ type CompleteMultipartUploadRequest struct {
 type ReportScanResultRequest struct {
 	ID              string `json:"id" binding:"required"`
 	TenantID        string `json:"tenant_id" binding:"required"`
+	ApplicationID   string `json:"application_id" binding:"required"`
 	ScanStatus      string `json:"scan_status" binding:"required"`
 	ExpectedVersion int64  `json:"expected_version" binding:"required"`
 }
 type FileIDRequest struct {
-	ID       string `json:"id" binding:"required"`
-	TenantID string `json:"tenant_id" binding:"required"`
+	ID            string `json:"id" binding:"required"`
+	TenantID      string `json:"tenant_id" binding:"required"`
+	ApplicationID string `json:"application_id" binding:"required"`
 }
 type ListFilesRequest struct {
-	TenantID    string `json:"tenant_id" binding:"required"`
-	Keyword     string `json:"keyword"`
-	Status      string `json:"status"`
-	ScanStatus  string `json:"scan_status"`
-	ContentType string `json:"content_type"`
-	OwnerID     string `json:"owner_id"`
-	Page        int    `json:"page"`
-	PageSize    int    `json:"page_size"`
+	TenantID      string `json:"tenant_id" binding:"required"`
+	ApplicationID string `json:"application_id" binding:"required"`
+	Keyword       string `json:"keyword"`
+	Status        string `json:"status"`
+	ScanStatus    string `json:"scan_status"`
+	ContentType   string `json:"content_type"`
+	OwnerID       string `json:"owner_id"`
+	Page          int    `json:"page"`
+	PageSize      int    `json:"page_size"`
 }
 type DeleteFileRequest struct {
 	ID              string `json:"id" binding:"required"`
 	TenantID        string `json:"tenant_id" binding:"required"`
+	ApplicationID   string `json:"application_id" binding:"required"`
 	ExpectedVersion int64  `json:"expected_version" binding:"required"`
 }
 
@@ -153,7 +161,7 @@ func (h *Handler) InitiateUpload(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.InitiateUpload(c.Request.Context(), r.TenantID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey)
+	v, err := h.files.InitiateUpload(c.Request.Context(), r.TenantID, r.ApplicationID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -174,7 +182,7 @@ func (h *Handler) InitiateMultipartUpload(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.InitiateMultipartUpload(c.Request.Context(), r.TenantID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey, r.PartSize)
+	v, err := h.files.InitiateMultipartUpload(c.Request.Context(), r.TenantID, r.ApplicationID, r.Filename, r.ContentType, r.Size, r.ChecksumSHA256, r.IdempotencyKey, r.PartSize)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -195,7 +203,7 @@ func (h *Handler) AuthorizeUploadPart(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.AuthorizeUploadPart(c.Request.Context(), r.ID, r.TenantID, r.PartNumber)
+	v, err := h.files.AuthorizeUploadPart(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID, r.PartNumber)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -220,7 +228,7 @@ func (h *Handler) CompleteMultipartUpload(c *gin.Context) {
 	for _, part := range r.Parts {
 		parts = append(parts, filedomain.CompletedPart{PartNumber: part.PartNumber, ETag: part.ETag})
 	}
-	v, err := h.files.CompleteMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ChecksumSHA256, parts, r.ExpectedVersion)
+	v, err := h.files.CompleteMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID, r.ChecksumSHA256, parts, r.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -241,7 +249,7 @@ func (h *Handler) AbortMultipartUpload(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.AbortMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ExpectedVersion)
+	v, err := h.files.AbortMultipartUpload(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID, r.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -262,7 +270,7 @@ func (h *Handler) CompleteUpload(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.CompleteUpload(c.Request.Context(), r.ID, r.TenantID, r.ChecksumSHA256, r.ExpectedVersion)
+	v, err := h.files.CompleteUpload(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID, r.ChecksumSHA256, r.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -286,7 +294,7 @@ func (h *Handler) ReportScanResult(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	value, err := h.files.ReportScanResult(c.Request.Context(), request.ID, request.TenantID, request.ScanStatus, request.ExpectedVersion)
+	value, err := h.files.ReportScanResult(c.Request.Context(), request.ID, request.TenantID, request.ApplicationID, request.ScanStatus, request.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -307,7 +315,7 @@ func (h *Handler) GetFile(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.Get(c.Request.Context(), r.ID, r.TenantID)
+	v, err := h.files.Get(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -330,7 +338,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 		return
 	}
 	page, err := h.files.List(c.Request.Context(), filedomain.ListFilter{
-		TenantID: request.TenantID, Keyword: request.Keyword, Status: request.Status,
+		TenantID: request.TenantID, ApplicationID: request.ApplicationID, Keyword: request.Keyword, Status: request.Status,
 		ScanStatus: request.ScanStatus, ContentType: request.ContentType, OwnerID: request.OwnerID,
 		Page: request.Page, PageSize: request.PageSize,
 	})
@@ -354,7 +362,7 @@ func (h *Handler) AuthorizeDownload(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.AuthorizeDownload(c.Request.Context(), r.ID, r.TenantID)
+	v, err := h.files.AuthorizeDownload(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -375,7 +383,7 @@ func (h *Handler) DeleteFile(c *gin.Context) {
 		Fail(c, h.logger, apperror.Invalid("invalid json request", err))
 		return
 	}
-	v, err := h.files.Delete(c.Request.Context(), r.ID, r.TenantID, r.ExpectedVersion)
+	v, err := h.files.Delete(c.Request.Context(), r.ID, r.TenantID, r.ApplicationID, r.ExpectedVersion)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return

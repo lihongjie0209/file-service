@@ -14,8 +14,8 @@ var ErrNotFound = errors.New("file not found")
 var ErrStaleVersion = errors.New("stale file version")
 
 type Repository interface {
-	Get(context.Context, string, string) (Metadata, error)
-	GetByKey(context.Context, string, string) (Metadata, error)
+	Get(context.Context, string, string, string) (Metadata, error)
+	GetByKey(context.Context, string, string, string) (Metadata, error)
 	List(context.Context, ListFilter) ([]Metadata, int64, error)
 	Insert(context.Context, sqlx.ExtContext, Metadata) error
 	Update(context.Context, sqlx.ExtContext, Metadata, int64) error
@@ -32,27 +32,27 @@ type SQLRepository struct{ db *sqlx.DB }
 
 func NewRepository(db *sqlx.DB) Repository { return &SQLRepository{db: db} }
 
-const columns = `id,tenant_id,owner_id,bucket,object_key,filename,content_type,size,checksum_sha256,status,scan_status,idempotency_key,upload_mode,multipart_upload_id,part_size,part_count,upload_expires_at,version,created_at,updated_at,created_by,updated_by`
+const columns = `id,tenant_id,application_id,owner_id,bucket,object_key,filename,content_type,size,checksum_sha256,status,scan_status,idempotency_key,upload_mode,multipart_upload_id,part_size,part_count,upload_expires_at,version,created_at,updated_at,created_by,updated_by`
 
-func (r *SQLRepository) Get(ctx context.Context, id, tenant string) (Metadata, error) {
+func (r *SQLRepository) Get(ctx context.Context, id, tenant, application string) (Metadata, error) {
 	var v Metadata
-	err := r.db.GetContext(ctx, &v, r.db.Rebind(`SELECT `+columns+` FROM files WHERE id=? AND tenant_id=?`), id, tenant)
+	err := r.db.GetContext(ctx, &v, r.db.Rebind(`SELECT `+columns+` FROM files WHERE id=? AND tenant_id=? AND application_id=?`), id, tenant, application)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return v, err
 }
-func (r *SQLRepository) GetByKey(ctx context.Context, tenant, key string) (Metadata, error) {
+func (r *SQLRepository) GetByKey(ctx context.Context, tenant, application, key string) (Metadata, error) {
 	var v Metadata
-	err := r.db.GetContext(ctx, &v, r.db.Rebind(`SELECT `+columns+` FROM files WHERE tenant_id=? AND idempotency_key=?`), tenant, key)
+	err := r.db.GetContext(ctx, &v, r.db.Rebind(`SELECT `+columns+` FROM files WHERE tenant_id=? AND application_id=? AND idempotency_key=?`), tenant, application, key)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = ErrNotFound
 	}
 	return v, err
 }
 func (r *SQLRepository) List(ctx context.Context, filter ListFilter) ([]Metadata, int64, error) {
-	where := ` WHERE tenant_id=?`
-	args := []any{filter.TenantID}
+	where := ` WHERE tenant_id=? AND application_id=?`
+	args := []any{filter.TenantID, filter.ApplicationID}
 	if filter.Keyword != "" {
 		where += ` AND (LOWER(filename) LIKE ? OR LOWER(id) LIKE ?)`
 		keyword := "%" + strings.ToLower(filter.Keyword) + "%"
@@ -77,11 +77,11 @@ func (r *SQLRepository) List(ctx context.Context, filter ListFilter) ([]Metadata
 	return values, total, err
 }
 func (r *SQLRepository) Insert(ctx context.Context, e sqlx.ExtContext, v Metadata) error {
-	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO files (`+columns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), v.ID, v.TenantID, v.OwnerID, v.Bucket, v.ObjectKey, v.Filename, v.ContentType, v.Size, v.ChecksumSHA256, v.Status, v.ScanStatus, v.IdempotencyKey, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.Version, v.CreatedAt, v.UpdatedAt, v.CreatedBy, v.UpdatedBy)
+	_, err := e.ExecContext(ctx, r.db.Rebind(`INSERT INTO files (`+columns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), v.ID, v.TenantID, v.ApplicationID, v.OwnerID, v.Bucket, v.ObjectKey, v.Filename, v.ContentType, v.Size, v.ChecksumSHA256, v.Status, v.ScanStatus, v.IdempotencyKey, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.Version, v.CreatedAt, v.UpdatedAt, v.CreatedBy, v.UpdatedBy)
 	return err
 }
 func (r *SQLRepository) Update(ctx context.Context, e sqlx.ExtContext, v Metadata, expected int64) error {
-	result, err := e.ExecContext(ctx, r.db.Rebind(`UPDATE files SET status=?,scan_status=?,checksum_sha256=?,size=?,upload_mode=?,multipart_upload_id=?,part_size=?,part_count=?,upload_expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND tenant_id=? AND version=?`), v.Status, v.ScanStatus, v.ChecksumSHA256, v.Size, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.UpdatedAt, v.UpdatedBy, v.ID, v.TenantID, expected)
+	result, err := e.ExecContext(ctx, r.db.Rebind(`UPDATE files SET status=?,scan_status=?,checksum_sha256=?,size=?,upload_mode=?,multipart_upload_id=?,part_size=?,part_count=?,upload_expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE id=? AND tenant_id=? AND application_id=? AND version=?`), v.Status, v.ScanStatus, v.ChecksumSHA256, v.Size, v.UploadMode, v.MultipartUploadID, v.PartSize, v.PartCount, v.UploadExpiresAt, v.UpdatedAt, v.UpdatedBy, v.ID, v.TenantID, v.ApplicationID, expected)
 	if err != nil {
 		return err
 	}

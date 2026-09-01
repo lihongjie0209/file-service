@@ -5,6 +5,7 @@ import "time"
 type Metadata struct {
 	ID                string     `db:"id" json:"id"`
 	TenantID          string     `db:"tenant_id" json:"tenant_id"`
+	ApplicationID     string     `db:"application_id" json:"application_id"`
 	OwnerID           string     `db:"owner_id" json:"owner_id"`
 	Bucket            string     `db:"bucket" json:"bucket"`
 	ObjectKey         string     `db:"object_key" json:"object_key"`
@@ -44,14 +45,15 @@ type CompletedPart struct {
 	ETag       string `json:"etag"`
 }
 type ListFilter struct {
-	TenantID    string
-	Keyword     string
-	Status      string
-	ScanStatus  string
-	ContentType string
-	OwnerID     string
-	Page        int
-	PageSize    int
+	TenantID      string
+	ApplicationID string
+	Keyword       string
+	Status        string
+	ScanStatus    string
+	ContentType   string
+	OwnerID       string
+	Page          int
+	PageSize      int
 }
 type MetadataPage struct {
 	Files    []Metadata `json:"files"`

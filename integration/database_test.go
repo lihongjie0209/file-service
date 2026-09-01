@@ -62,20 +62,20 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			checksum := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			service := filedomain.NewService(filedomain.NewRepository(db), appdb.NewTransactor(db), integrationStorage{info: objectstorage.ObjectInfo{Size: 10, ChecksumSHA256: checksum}})
 			actorCtx := platformprincipal.WithContext(ctx, platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
-			initiated, err := service.InitiateUpload(actorCtx, "tenant-1", "avatar.png", "image/png", 10, checksum, "upload-1")
+			initiated, err := service.InitiateUpload(actorCtx, "tenant-1", "app-1", "avatar.png", "image/png", 10, checksum, "upload-1")
 			if err != nil {
 				t.Fatalf("initiate: %v", err)
 			}
-			completed, err := service.CompleteUpload(actorCtx, initiated.File.ID, "tenant-1", checksum, initiated.File.Version)
+			completed, err := service.CompleteUpload(actorCtx, initiated.File.ID, "tenant-1", "app-1", checksum, initiated.File.Version)
 			if err != nil || completed.Status != "ready" {
 				t.Fatalf("complete=%+v err=%v", completed, err)
 			}
 			multipartService := filedomain.NewService(filedomain.NewRepository(db), appdb.NewTransactor(db), integrationStorage{info: objectstorage.ObjectInfo{Size: 11 << 20, ChecksumSHA256: checksum}})
-			multipart, err := multipartService.InitiateMultipartUpload(actorCtx, "tenant-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
+			multipart, err := multipartService.InitiateMultipartUpload(actorCtx, "tenant-1", "app-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
 			if err != nil || multipart.PartCount != 3 {
 				t.Fatalf("multipart initiate=%+v err=%v", multipart, err)
 			}
-			multipartCompleted, err := multipartService.CompleteMultipartUpload(actorCtx, multipart.File.ID, "tenant-1", checksum, []filedomain.CompletedPart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}, {PartNumber: 3, ETag: "c"}}, multipart.File.Version)
+			multipartCompleted, err := multipartService.CompleteMultipartUpload(actorCtx, multipart.File.ID, "tenant-1", "app-1", checksum, []filedomain.CompletedPart{{PartNumber: 1, ETag: "a"}, {PartNumber: 2, ETag: "b"}, {PartNumber: 3, ETag: "c"}}, multipart.File.Version)
 			if err != nil || multipartCompleted.Status != "ready" {
 				t.Fatalf("multipart complete=%+v err=%v", multipartCompleted, err)
 			}

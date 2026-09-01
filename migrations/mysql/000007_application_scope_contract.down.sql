@@ -1,0 +1,1 @@
+ALTER TABLE files ADD INDEX files_tenant_owner_idx(tenant_id,owner_id,created_at DESC), DROP INDEX files_scope_idempotency_uq, ADD UNIQUE KEY files_idempotency_uq(tenant_id,idempotency_key), DROP CHECK chk_files_application_nonempty, MODIFY COLUMN application_id VARCHAR(191) NULL;

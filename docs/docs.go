@@ -712,6 +712,9 @@ const docTemplate = `{
         "file.Metadata": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "bucket": {
                     "type": "string"
                 },
@@ -845,11 +848,15 @@ const docTemplate = `{
         "httptransport.AuthorizeUploadPartRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "id",
                 "part_number",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -864,6 +871,7 @@ const docTemplate = `{
         "httptransport.CompleteMultipartUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "expected_version",
                 "id",
@@ -871,6 +879,9 @@ const docTemplate = `{
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -894,12 +905,16 @@ const docTemplate = `{
         "httptransport.CompleteUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "expected_version",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -932,11 +947,15 @@ const docTemplate = `{
         "httptransport.DeleteFileRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "expected_version",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "expected_version": {
                     "type": "integer"
                 },
@@ -951,10 +970,14 @@ const docTemplate = `{
         "httptransport.FileIDRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -966,6 +989,7 @@ const docTemplate = `{
         "httptransport.InitiateMultipartUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "content_type",
                 "filename",
@@ -974,6 +998,9 @@ const docTemplate = `{
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -1000,6 +1027,7 @@ const docTemplate = `{
         "httptransport.InitiateUploadRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "checksum_sha256",
                 "content_type",
                 "filename",
@@ -1008,6 +1036,9 @@ const docTemplate = `{
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "checksum_sha256": {
                     "type": "string"
                 },
@@ -1031,9 +1062,13 @@ const docTemplate = `{
         "httptransport.ListFilesRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "content_type": {
                     "type": "string"
                 },
@@ -1071,12 +1106,16 @@ const docTemplate = `{
         "httptransport.ReportScanResultRequest": {
             "type": "object",
             "required": [
+                "application_id",
                 "expected_version",
                 "id",
                 "scan_status",
                 "tenant_id"
             ],
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "expected_version": {
                     "type": "integer"
                 },

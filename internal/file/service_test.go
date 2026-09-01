@@ -9,10 +9,18 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/jmoiron/sqlx"
+	"github.com/lihongjie0209/file-service/internal/config"
 	"github.com/lihongjie0209/file-service/internal/database"
 	"github.com/lihongjie0209/file-service/internal/objectstorage"
+	"github.com/lihongjie0209/microservice-platform-go/appaccess"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
+	commonv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/common/v1"
+	"google.golang.org/protobuf/proto"
 )
+
+type rejectingApplicationVerifier struct{ err error }
+
+func (v rejectingApplicationVerifier) Verify(context.Context, string, string) error { return v.err }
 
 type fakeRepository struct {
 	file    Metadata
@@ -25,13 +33,13 @@ func (f *fakeRepository) AddOutbox(_ context.Context, _ sqlx.ExtContext, event O
 	return nil
 }
 
-func (f *fakeRepository) Get(context.Context, string, string) (Metadata, error) {
+func (f *fakeRepository) Get(context.Context, string, string, string) (Metadata, error) {
 	if f.file.ID == "" {
 		return Metadata{}, ErrNotFound
 	}
 	return f.file, nil
 }
-func (f *fakeRepository) GetByKey(context.Context, string, string) (Metadata, error) {
+func (f *fakeRepository) GetByKey(context.Context, string, string, string) (Metadata, error) {
 	if f.file.ID == "" {
 		return Metadata{}, ErrNotFound
 	}
@@ -111,25 +119,44 @@ func TestUploadLifecycleAndIdempotency(t *testing.T) {
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	first, err := service.InitiateUpload(ctx, "tenant-1", "../avatar.png", "image/png", 10, checksum, "upload-1")
+	first, err := service.InitiateUpload(ctx, "tenant-1", "app-1", "../avatar.png", "image/png", 10, checksum, "upload-1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(repo.outbox) != 1 || repo.outbox[0].Subject != "platform.file.status.changed.v1" {
 		t.Fatalf("outbox=%+v", repo.outbox)
 	}
-	replay, err := service.InitiateUpload(ctx, "tenant-1", "avatar.png", "image/png", 10, checksum, "upload-1")
+	envelope := &commonv1.EventEnvelope{}
+	if err := proto.Unmarshal(repo.outbox[0].Envelope, envelope); err != nil {
+		t.Fatal(err)
+	}
+	if first.File.ApplicationID != "app-1" || envelope.GetApplicationId() != "app-1" {
+		t.Fatalf("file=%+v envelope application=%q", first.File, envelope.GetApplicationId())
+	}
+	replay, err := service.InitiateUpload(ctx, "tenant-1", "app-1", "avatar.png", "image/png", 10, checksum, "upload-1")
 	if err != nil || replay.File.ID != first.File.ID {
 		t.Fatalf("replay=%+v err=%v", replay, err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	completed, err := service.CompleteUpload(ctx, first.File.ID, "tenant-1", checksum, 1)
+	completed, err := service.CompleteUpload(ctx, first.File.ID, "tenant-1", "app-1", checksum, 1)
 	if err != nil || completed.Status != "ready" || completed.ScanStatus != "skipped" || completed.Version != 2 {
 		t.Fatalf("completed=%+v err=%v", completed, err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInitiateUploadRejectsApplicationWithoutTenantGrant(t *testing.T) {
+	service, err := NewRuntimeService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{}, config.Config{}, rejectingApplicationVerifier{err: appaccess.ErrNotGranted})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
+	_, err = service.InitiateUpload(ctx, "tenant-1", "app-denied", "a.txt", "text/plain", 1, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key-1")
+	if err == nil {
+		t.Fatal("InitiateUpload() accepted an ungranted application")
 	}
 }
 
@@ -139,20 +166,20 @@ func TestRequiredScanBlocksDownloadUntilCleanResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Status: "ready", ScanStatus: "pending", Version: 2}}
+	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ApplicationID: "app-1", ObjectKey: "key", Status: "ready", ScanStatus: "pending", Version: 2}}
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), &fakeStorage{})
 	service.scanRequired = true
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "scanner-1", Type: platformprincipal.TypeServiceAccount})
-	if _, err := service.AuthorizeDownload(ctx, "file-1", "tenant-1"); err == nil {
+	if _, err := service.AuthorizeDownload(ctx, "file-1", "tenant-1", "app-1"); err == nil {
 		t.Fatal("download authorized before clean scan")
 	}
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	clean, err := service.ReportScanResult(ctx, "file-1", "tenant-1", "clean", 2)
+	clean, err := service.ReportScanResult(ctx, "file-1", "tenant-1", "app-1", "clean", 2)
 	if err != nil || clean.ScanStatus != "clean" || clean.Version != 3 {
 		t.Fatalf("clean=%+v err=%v", clean, err)
 	}
-	if _, err := service.AuthorizeDownload(ctx, "file-1", "tenant-1"); err != nil {
+	if _, err := service.AuthorizeDownload(ctx, "file-1", "tenant-1", "app-1"); err != nil {
 		t.Fatalf("download after clean scan: %v", err)
 	}
 }
@@ -171,17 +198,17 @@ func TestMultipartUploadLifecycle(t *testing.T) {
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	initiated, err := service.InitiateMultipartUpload(ctx, "tenant-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
+	initiated, err := service.InitiateMultipartUpload(ctx, "tenant-1", "app-1", "archive.bin", "application/octet-stream", 11<<20, checksum, "multipart-1", 5<<20)
 	if err != nil || initiated.PartCount != 3 || initiated.UploadID != "upload-1" || initiated.File.UploadMode != "multipart" {
 		t.Fatalf("initiated=%+v err=%v", initiated, err)
 	}
-	part, err := service.AuthorizeUploadPart(ctx, initiated.File.ID, "tenant-1", 2)
+	part, err := service.AuthorizeUploadPart(ctx, initiated.File.ID, "tenant-1", "app-1", 2)
 	if err != nil || part.URL == "" {
 		t.Fatalf("part=%+v err=%v", part, err)
 	}
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	completed, err := service.CompleteMultipartUpload(ctx, initiated.File.ID, "tenant-1", checksum, []CompletedPart{{PartNumber: 3, ETag: "c"}, {PartNumber: 1, ETag: `"a"`}, {PartNumber: 2, ETag: "b"}}, initiated.File.Version)
+	completed, err := service.CompleteMultipartUpload(ctx, initiated.File.ID, "tenant-1", "app-1", checksum, []CompletedPart{{PartNumber: 3, ETag: "c"}, {PartNumber: 1, ETag: `"a"`}, {PartNumber: 2, ETag: "b"}}, initiated.File.Version)
 	if err != nil || completed.Status != "ready" || len(storage.completedParts) != 3 || storage.completedParts[0].PartNumber != 1 {
 		t.Fatalf("completed=%+v parts=%+v err=%v", completed, storage.completedParts, err)
 	}
@@ -189,7 +216,7 @@ func TestMultipartUploadLifecycle(t *testing.T) {
 func TestInitiateRejectsInvalidChecksum(t *testing.T) {
 	service := NewService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{})
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user", Type: platformprincipal.TypeUser, TenantID: "tenant"})
-	if _, err := service.InitiateUpload(ctx, "tenant", "a.txt", "text/plain", 1, "bad", "key"); err == nil {
+	if _, err := service.InitiateUpload(ctx, "tenant", "app-1", "a.txt", "text/plain", 1, "bad", "key"); err == nil {
 		t.Fatal("invalid checksum accepted")
 	}
 }
@@ -197,16 +224,16 @@ func TestInitiateRejectsInvalidChecksum(t *testing.T) {
 func TestListRejectsCrossTenantRequest(t *testing.T) {
 	service := NewService(&fakeRepository{}, &database.Transactor{}, &fakeStorage{})
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
-	if _, err := service.List(ctx, ListFilter{TenantID: "tenant-2"}); err == nil {
+	if _, err := service.List(ctx, ListFilter{TenantID: "tenant-2", ApplicationID: "app-1"}); err == nil {
 		t.Fatal("List() accepted a cross-tenant request")
 	}
 }
 
 func TestListAppliesPaginationDefaults(t *testing.T) {
-	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1"}}
+	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ApplicationID: "app-1"}}
 	service := NewService(repository, &database.Transactor{}, &fakeStorage{})
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
-	page, err := service.List(ctx, ListFilter{TenantID: "tenant-1"})
+	page, err := service.List(ctx, ListFilter{TenantID: "tenant-1", ApplicationID: "app-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,8 +244,8 @@ func TestListAppliesPaginationDefaults(t *testing.T) {
 
 func TestDeleteRejectsMissingPrincipalBeforeStorageSideEffect(t *testing.T) {
 	storage := &fakeStorage{}
-	service := NewService(&fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Version: 1}}, &database.Transactor{}, storage)
-	if _, err := service.Delete(t.Context(), "file-1", "tenant-1", 1); err == nil {
+	service := NewService(&fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ApplicationID: "app-1", ObjectKey: "key", Version: 1}}, &database.Transactor{}, storage)
+	if _, err := service.Delete(t.Context(), "file-1", "tenant-1", "app-1", 1); err == nil {
 		t.Fatal("Delete() accepted missing principal")
 	}
 	if storage.deletes != 0 {
@@ -232,20 +259,20 @@ func TestDeletePersistsDeletingBeforeObjectStorageSideEffectAndCanRetry(t *testi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", Status: "ready", Version: 1}}
+	repository := &fakeRepository{file: Metadata{ID: "file-1", TenantID: "tenant-1", ApplicationID: "app-1", ObjectKey: "key", Status: "ready", Version: 1}}
 	storage := &fakeStorage{deleteErr: errors.New("temporary outage")}
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)
 	ctx := platformprincipal.WithContext(t.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1"})
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	deleting, err := service.Delete(ctx, "file-1", "tenant-1", 1)
+	deleting, err := service.Delete(ctx, "file-1", "tenant-1", "app-1", 1)
 	if err == nil || deleting.Status != "deleting" || deleting.Version != 2 || repository.file.Status != "deleting" {
 		t.Fatalf("deleting=%+v stored=%+v err=%v", deleting, repository.file, err)
 	}
 	storage.deleteErr = nil
 	mock.ExpectBegin()
 	mock.ExpectCommit()
-	deleted, err := service.Delete(ctx, "file-1", "tenant-1", deleting.Version)
+	deleted, err := service.Delete(ctx, "file-1", "tenant-1", "app-1", deleting.Version)
 	if err != nil || deleted.Status != "deleted" || deleted.Version != 3 || storage.deletes != 2 {
 		t.Fatalf("deleted=%+v calls=%d err=%v", deleted, storage.deletes, err)
 	}
@@ -259,7 +286,7 @@ func TestCleanupExpiredMultipartUpload(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	now := time.Date(2026, 8, 30, 8, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
 	expiresAt := now.Add(-time.Minute)
-	value := Metadata{ID: "file-1", TenantID: "tenant-1", ObjectKey: "key", UploadMode: "multipart", MultipartUploadID: "upload-1", Status: "pending_upload", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now}
+	value := Metadata{ID: "file-1", TenantID: "tenant-1", ApplicationID: "app-1", ObjectKey: "key", UploadMode: "multipart", MultipartUploadID: "upload-1", Status: "pending_upload", UploadExpiresAt: &expiresAt, Version: 1, CreatedAt: now, UpdatedAt: now}
 	repository := &fakeRepository{file: value, expired: []Metadata{value}}
 	storage := &fakeStorage{}
 	service := NewService(repository, database.NewTransactor(sqlx.NewDb(db, "sqlmock")), storage)

@@ -97,21 +97,21 @@ type fileServer struct {
 }
 
 func (s *fileServer) InitiateUpload(ctx context.Context, r *filev1.InitiateUploadRequest) (*filev1.InitiateUploadResponse, error) {
-	v, err := s.service.InitiateUpload(ctx, r.GetTenantId(), r.GetFilename(), r.GetContentType(), r.GetSize(), r.GetChecksumSha256(), r.GetIdempotencyKey())
+	v, err := s.service.InitiateUpload(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetFilename(), r.GetContentType(), r.GetSize(), r.GetChecksumSha256(), r.GetIdempotencyKey())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.InitiateUploadResponse{File: toProtoFile(v.File), UploadUrl: v.URL, Headers: v.Headers, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
 }
 func (s *fileServer) InitiateMultipartUpload(ctx context.Context, r *filev1.InitiateMultipartUploadRequest) (*filev1.InitiateMultipartUploadResponse, error) {
-	v, err := s.service.InitiateMultipartUpload(ctx, r.GetTenantId(), r.GetFilename(), r.GetContentType(), r.GetSize(), r.GetChecksumSha256(), r.GetIdempotencyKey(), r.GetPartSize())
+	v, err := s.service.InitiateMultipartUpload(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetFilename(), r.GetContentType(), r.GetSize(), r.GetChecksumSha256(), r.GetIdempotencyKey(), r.GetPartSize())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.InitiateMultipartUploadResponse{File: toProtoFile(v.File), UploadId: v.UploadID, PartSize: v.PartSize, PartCount: v.PartCount, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
 }
 func (s *fileServer) AuthorizeUploadPart(ctx context.Context, r *filev1.AuthorizeUploadPartRequest) (*filev1.AuthorizeUploadPartResponse, error) {
-	v, err := s.service.AuthorizeUploadPart(ctx, r.GetId(), r.GetTenantId(), r.GetPartNumber())
+	v, err := s.service.AuthorizeUploadPart(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetPartNumber())
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -122,56 +122,56 @@ func (s *fileServer) CompleteMultipartUpload(ctx context.Context, r *filev1.Comp
 	for _, part := range r.GetParts() {
 		parts = append(parts, filedomain.CompletedPart{PartNumber: part.GetPartNumber(), ETag: part.GetEtag()})
 	}
-	v, err := s.service.CompleteMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetChecksumSha256(), parts, r.GetExpectedVersion())
+	v, err := s.service.CompleteMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetChecksumSha256(), parts, r.GetExpectedVersion())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.CompleteMultipartUploadResponse{File: toProtoFile(v)}, nil
 }
 func (s *fileServer) AbortMultipartUpload(ctx context.Context, r *filev1.AbortMultipartUploadRequest) (*filev1.AbortMultipartUploadResponse, error) {
-	v, err := s.service.AbortMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetExpectedVersion())
+	v, err := s.service.AbortMultipartUpload(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetExpectedVersion())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.AbortMultipartUploadResponse{File: toProtoFile(v)}, nil
 }
 func (s *fileServer) CompleteUpload(ctx context.Context, r *filev1.CompleteUploadRequest) (*filev1.CompleteUploadResponse, error) {
-	v, err := s.service.CompleteUpload(ctx, r.GetId(), r.GetTenantId(), r.GetChecksumSha256(), r.GetExpectedVersion())
+	v, err := s.service.CompleteUpload(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetChecksumSha256(), r.GetExpectedVersion())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.CompleteUploadResponse{File: toProtoFile(v)}, nil
 }
 func (s *fileServer) ReportScanResult(ctx context.Context, r *filev1.ReportScanResultRequest) (*filev1.ReportScanResultResponse, error) {
-	v, err := s.service.ReportScanResult(ctx, r.GetId(), r.GetTenantId(), r.GetScanStatus(), r.GetExpectedVersion())
+	v, err := s.service.ReportScanResult(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetScanStatus(), r.GetExpectedVersion())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.ReportScanResultResponse{File: toProtoFile(v)}, nil
 }
 func (s *fileServer) AuthorizeDownload(ctx context.Context, r *filev1.AuthorizeDownloadRequest) (*filev1.AuthorizeDownloadResponse, error) {
-	v, err := s.service.AuthorizeDownload(ctx, r.GetId(), r.GetTenantId())
+	v, err := s.service.AuthorizeDownload(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.AuthorizeDownloadResponse{DownloadUrl: v.URL, ExpiresAt: timestamppb.New(v.ExpiresAt)}, nil
 }
 func (s *fileServer) GetMetadata(ctx context.Context, r *filev1.GetMetadataRequest) (*filev1.GetMetadataResponse, error) {
-	v, err := s.service.Get(ctx, r.GetId(), r.GetTenantId())
+	v, err := s.service.Get(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.GetMetadataResponse{File: toProtoFile(v)}, nil
 }
 func (s *fileServer) Delete(ctx context.Context, r *filev1.DeleteRequest) (*filev1.DeleteResponse, error) {
-	v, err := s.service.Delete(ctx, r.GetId(), r.GetTenantId(), r.GetExpectedVersion())
+	v, err := s.service.Delete(ctx, r.GetId(), r.GetTenantId(), r.GetApplicationId(), r.GetExpectedVersion())
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return &filev1.DeleteResponse{File: toProtoFile(v)}, nil
 }
 func toProtoFile(v filedomain.Metadata) *filev1.FileMetadata {
-	result := &filev1.FileMetadata{Id: v.ID, TenantId: v.TenantID, OwnerId: v.OwnerID, Bucket: v.Bucket, ObjectKey: v.ObjectKey, Filename: v.Filename, ContentType: v.ContentType, Size: v.Size, ChecksumSha256: v.ChecksumSHA256, Status: v.Status, ScanStatus: v.ScanStatus, UploadMode: v.UploadMode, MultipartUploadId: v.MultipartUploadID, PartSize: v.PartSize, PartCount: v.PartCount, Version: v.Version, CreatedAt: timestamppb.New(v.CreatedAt), UpdatedAt: timestamppb.New(v.UpdatedAt), CreatedBy: v.CreatedBy, UpdatedBy: v.UpdatedBy}
+	result := &filev1.FileMetadata{Id: v.ID, TenantId: v.TenantID, ApplicationId: v.ApplicationID, OwnerId: v.OwnerID, Bucket: v.Bucket, ObjectKey: v.ObjectKey, Filename: v.Filename, ContentType: v.ContentType, Size: v.Size, ChecksumSha256: v.ChecksumSHA256, Status: v.Status, ScanStatus: v.ScanStatus, UploadMode: v.UploadMode, MultipartUploadId: v.MultipartUploadID, PartSize: v.PartSize, PartCount: v.PartCount, Version: v.Version, CreatedAt: timestamppb.New(v.CreatedAt), UpdatedAt: timestamppb.New(v.UpdatedAt), CreatedBy: v.CreatedBy, UpdatedBy: v.UpdatedBy}
 	if v.UploadExpiresAt != nil {
 		result.UploadExpiresAt = timestamppb.New(*v.UploadExpiresAt)
 	}
