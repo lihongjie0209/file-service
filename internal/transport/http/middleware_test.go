@@ -31,6 +31,9 @@ func TestFileHTTPRequirementCoversEveryBusinessRoute(t *testing.T) {
 		if !ok || requirement.Resource == "" || requirement.Action == "" {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)
 		}
+		if route != "/api/v1/files/scans/report" && requirement.Scope != platformauthz.ScopePrincipal {
+			t.Fatalf("route %q scope = %q, want principal", route, requirement.Scope)
+		}
 	}
 	scan, _ := fileHTTPRequirement("/api/v1/files/scans/report")
 	if scan.Scope != platformauthz.ScopePlatform {

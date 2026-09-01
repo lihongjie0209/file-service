@@ -75,16 +75,16 @@ func fileGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
 			return platformauthz.Requirement{}, false
 		}
 		requirements := map[string]platformauthz.Requirement{
-			filev1.FileService_InitiateUpload_FullMethodName:          {Resource: "file.object", Action: "upload"},
-			filev1.FileService_InitiateMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload"},
-			filev1.FileService_AuthorizeUploadPart_FullMethodName:     {Resource: "file.object", Action: "upload"},
-			filev1.FileService_CompleteMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload"},
-			filev1.FileService_AbortMultipartUpload_FullMethodName:    {Resource: "file.object", Action: "upload"},
-			filev1.FileService_CompleteUpload_FullMethodName:          {Resource: "file.object", Action: "upload"},
+			filev1.FileService_InitiateUpload_FullMethodName:          {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_InitiateMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_AuthorizeUploadPart_FullMethodName:     {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_CompleteMultipartUpload_FullMethodName: {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_AbortMultipartUpload_FullMethodName:    {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_CompleteUpload_FullMethodName:          {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
 			filev1.FileService_ReportScanResult_FullMethodName:        {Resource: "file.scan", Action: "report", Scope: platformauthz.ScopePlatform},
-			filev1.FileService_AuthorizeDownload_FullMethodName:       {Resource: "file.object", Action: "download"},
-			filev1.FileService_GetMetadata_FullMethodName:             {Resource: "file.object", Action: "read"},
-			filev1.FileService_Delete_FullMethodName:                  {Resource: "file.object", Action: "delete"},
+			filev1.FileService_AuthorizeDownload_FullMethodName:       {Resource: "file.object", Action: "download", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_GetMetadata_FullMethodName:             {Resource: "file.object", Action: "read", Scope: platformauthz.ScopePrincipal},
+			filev1.FileService_Delete_FullMethodName:                  {Resource: "file.object", Action: "delete", Scope: platformauthz.ScopePrincipal},
 		}
 		requirement, ok := requirements[method]
 		return requirement, ok

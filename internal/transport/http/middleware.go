@@ -248,17 +248,17 @@ func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *sl
 
 func fileHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 	requirements := map[string]platformauthz.Requirement{
-		"/api/v1/files/uploads/initiate":                 {Resource: "file.object", Action: "upload"},
-		"/api/v1/files/uploads/multipart/initiate":       {Resource: "file.object", Action: "upload"},
-		"/api/v1/files/uploads/multipart/authorize-part": {Resource: "file.object", Action: "upload"},
-		"/api/v1/files/uploads/multipart/complete":       {Resource: "file.object", Action: "upload"},
-		"/api/v1/files/uploads/multipart/abort":          {Resource: "file.object", Action: "upload"},
-		"/api/v1/files/uploads/complete":                 {Resource: "file.object", Action: "upload"},
+		"/api/v1/files/uploads/initiate":                 {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/uploads/multipart/initiate":       {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/uploads/multipart/authorize-part": {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/uploads/multipart/complete":       {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/uploads/multipart/abort":          {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/uploads/complete":                 {Resource: "file.object", Action: "upload", Scope: platformauthz.ScopePrincipal},
 		"/api/v1/files/scans/report":                     {Resource: "file.scan", Action: "report", Scope: platformauthz.ScopePlatform},
-		"/api/v1/files/metadata/get":                     {Resource: "file.object", Action: "read"},
-		"/api/v1/files/metadata/list":                    {Resource: "file.object", Action: "list"},
-		"/api/v1/files/downloads/authorize":              {Resource: "file.object", Action: "download"},
-		"/api/v1/files/delete":                           {Resource: "file.object", Action: "delete"},
+		"/api/v1/files/metadata/get":                     {Resource: "file.object", Action: "read", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/metadata/list":                    {Resource: "file.object", Action: "list", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/downloads/authorize":              {Resource: "file.object", Action: "download", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/files/delete":                           {Resource: "file.object", Action: "delete", Scope: platformauthz.ScopePrincipal},
 	}
 	requirement, ok := requirements[route]
 	return requirement, ok

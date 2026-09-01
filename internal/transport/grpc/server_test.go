@@ -23,6 +23,9 @@ func TestFileGRPCRequirementCoversEveryBusinessMethod(t *testing.T) {
 		if !ok || requirement.Resource == "" || requirement.Action == "" {
 			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)
 		}
+		if method != filev1.FileService_ReportScanResult_FullMethodName && requirement.Scope != platformauthz.ScopePrincipal {
+			t.Fatalf("method %q scope = %q, want principal", method, requirement.Scope)
+		}
 	}
 	scan, _ := resolve(filev1.FileService_ReportScanResult_FullMethodName)
 	if scan.Scope != platformauthz.ScopePlatform {
