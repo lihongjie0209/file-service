@@ -2,6 +2,7 @@ package httptransport
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lihongjie0209/file-service/internal/apperror"
@@ -92,6 +93,62 @@ type DeleteFileRequest struct {
 type MeResponseBody struct {
 	Subject string `json:"subject"`
 }
+type FileBody struct {
+	ID              string     `json:"id"`
+	TenantID        string     `json:"tenant_id"`
+	ApplicationID   string     `json:"application_id"`
+	OwnerID         string     `json:"owner_id"`
+	Filename        string     `json:"filename"`
+	ContentType     string     `json:"content_type"`
+	Size            int64      `json:"size"`
+	ChecksumSHA256  string     `json:"checksum_sha256"`
+	Status          string     `json:"status"`
+	ScanStatus      string     `json:"scan_status"`
+	UploadMode      string     `json:"upload_mode"`
+	PartSize        int64      `json:"part_size"`
+	PartCount       int32      `json:"part_count"`
+	UploadExpiresAt *time.Time `json:"upload_expires_at,omitempty"`
+	Version         int64      `json:"version"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	CreatedBy       string     `json:"created_by"`
+	UpdatedBy       string     `json:"updated_by"`
+}
+type FileAuthorizationBody struct {
+	File      FileBody          `json:"file"`
+	URL       string            `json:"url"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	ExpiresAt time.Time         `json:"expires_at"`
+}
+type MultipartAuthorizationBody struct {
+	File      FileBody  `json:"file"`
+	PartSize  int64     `json:"part_size"`
+	PartCount int32     `json:"part_count"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+type FilePageBody struct {
+	Files    []FileBody `json:"files"`
+	Total    int64      `json:"total"`
+	Page     int        `json:"page"`
+	PageSize int        `json:"page_size"`
+}
+
+func fileBody(value filedomain.Metadata) FileBody {
+	return FileBody{ID: value.ID, TenantID: value.TenantID, ApplicationID: value.ApplicationID, OwnerID: value.OwnerID, Filename: value.Filename, ContentType: value.ContentType, Size: value.Size, ChecksumSHA256: value.ChecksumSHA256, Status: value.Status, ScanStatus: value.ScanStatus, UploadMode: value.UploadMode, PartSize: value.PartSize, PartCount: value.PartCount, UploadExpiresAt: value.UploadExpiresAt, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt, CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
+}
+func authorizationBody(value filedomain.Authorization) FileAuthorizationBody {
+	return FileAuthorizationBody{File: fileBody(value.File), URL: value.URL, Headers: value.Headers, ExpiresAt: value.ExpiresAt}
+}
+func multipartAuthorizationBody(value filedomain.MultipartAuthorization) MultipartAuthorizationBody {
+	return MultipartAuthorizationBody{File: fileBody(value.File), PartSize: value.PartSize, PartCount: value.PartCount, ExpiresAt: value.ExpiresAt}
+}
+func filePageBody(value filedomain.MetadataPage) FilePageBody {
+	files := make([]FileBody, len(value.Files))
+	for i := range value.Files {
+		files[i] = fileBody(value.Files[i])
+	}
+	return FilePageBody{Files: files, Total: value.Total, Page: value.Page, PageSize: value.PageSize}
+}
 
 // Login godoc
 // @Summary Issue a JWT access token
@@ -153,7 +210,7 @@ func (h *Handler) Version(c *gin.Context) { OK(c, buildinfo.Current()) }
 // @Tags files
 // @Security Bearer
 // @Param request body InitiateUploadRequest true "Upload metadata"
-// @Success 200 {object} Response{body=file.Authorization}
+// @Success 200 {object} Response{body=FileAuthorizationBody}
 // @Router /api/v1/files/uploads/initiate [post]
 func (h *Handler) InitiateUpload(c *gin.Context) {
 	var r InitiateUploadRequest
@@ -166,7 +223,7 @@ func (h *Handler) InitiateUpload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, authorizationBody(v))
 }
 
 // InitiateMultipartUpload godoc
@@ -174,7 +231,7 @@ func (h *Handler) InitiateUpload(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body InitiateMultipartUploadRequest true "Multipart upload metadata"
-// @Success 200 {object} Response{body=file.MultipartAuthorization}
+// @Success 200 {object} Response{body=MultipartAuthorizationBody}
 // @Router /api/v1/files/uploads/multipart/initiate [post]
 func (h *Handler) InitiateMultipartUpload(c *gin.Context) {
 	var r InitiateMultipartUploadRequest
@@ -187,7 +244,7 @@ func (h *Handler) InitiateMultipartUpload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, multipartAuthorizationBody(v))
 }
 
 // AuthorizeUploadPart godoc
@@ -195,7 +252,7 @@ func (h *Handler) InitiateMultipartUpload(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body AuthorizeUploadPartRequest true "Upload part"
-// @Success 200 {object} Response{body=file.Authorization}
+// @Success 200 {object} Response{body=FileAuthorizationBody}
 // @Router /api/v1/files/uploads/multipart/authorize-part [post]
 func (h *Handler) AuthorizeUploadPart(c *gin.Context) {
 	var r AuthorizeUploadPartRequest
@@ -208,7 +265,7 @@ func (h *Handler) AuthorizeUploadPart(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, authorizationBody(v))
 }
 
 // CompleteMultipartUpload godoc
@@ -216,7 +273,7 @@ func (h *Handler) AuthorizeUploadPart(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body CompleteMultipartUploadRequest true "Completed multipart upload"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/uploads/multipart/complete [post]
 func (h *Handler) CompleteMultipartUpload(c *gin.Context) {
 	var r CompleteMultipartUploadRequest
@@ -233,7 +290,7 @@ func (h *Handler) CompleteMultipartUpload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, fileBody(v))
 }
 
 // AbortMultipartUpload godoc
@@ -241,7 +298,7 @@ func (h *Handler) CompleteMultipartUpload(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body DeleteFileRequest true "Multipart upload version"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/uploads/multipart/abort [post]
 func (h *Handler) AbortMultipartUpload(c *gin.Context) {
 	var r DeleteFileRequest
@@ -254,7 +311,7 @@ func (h *Handler) AbortMultipartUpload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, fileBody(v))
 }
 
 // CompleteUpload godoc
@@ -262,7 +319,7 @@ func (h *Handler) AbortMultipartUpload(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body CompleteUploadRequest true "Completed upload"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/uploads/complete [post]
 func (h *Handler) CompleteUpload(c *gin.Context) {
 	var r CompleteUploadRequest
@@ -275,7 +332,7 @@ func (h *Handler) CompleteUpload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, fileBody(v))
 }
 
 // ReportScanResult godoc
@@ -286,7 +343,7 @@ func (h *Handler) CompleteUpload(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body ReportScanResultRequest true "Scan result"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/scans/report [post]
 func (h *Handler) ReportScanResult(c *gin.Context) {
 	var request ReportScanResultRequest
@@ -299,7 +356,7 @@ func (h *Handler) ReportScanResult(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, value)
+	OK(c, fileBody(value))
 }
 
 // GetFile godoc
@@ -307,7 +364,7 @@ func (h *Handler) ReportScanResult(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body FileIDRequest true "File ID"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/metadata/get [post]
 func (h *Handler) GetFile(c *gin.Context) {
 	var r FileIDRequest
@@ -320,7 +377,7 @@ func (h *Handler) GetFile(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, fileBody(v))
 }
 
 // ListFiles godoc
@@ -328,7 +385,7 @@ func (h *Handler) GetFile(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body ListFilesRequest true "File filters and pagination"
-// @Success 200 {object} Response{body=file.MetadataPage}
+// @Success 200 {object} Response{body=FilePageBody}
 // @Failure 403 {object} Response "Code 20003: tenant access denied"
 // @Router /api/v1/files/metadata/list [post]
 func (h *Handler) ListFiles(c *gin.Context) {
@@ -346,7 +403,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, page)
+	OK(c, filePageBody(page))
 }
 
 // AuthorizeDownload godoc
@@ -354,7 +411,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body FileIDRequest true "File ID"
-// @Success 200 {object} Response{body=file.Authorization}
+// @Success 200 {object} Response{body=FileAuthorizationBody}
 // @Router /api/v1/files/downloads/authorize [post]
 func (h *Handler) AuthorizeDownload(c *gin.Context) {
 	var r FileIDRequest
@@ -367,7 +424,7 @@ func (h *Handler) AuthorizeDownload(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, authorizationBody(v))
 }
 
 // DeleteFile godoc
@@ -375,7 +432,7 @@ func (h *Handler) AuthorizeDownload(c *gin.Context) {
 // @Tags files
 // @Security Bearer
 // @Param request body DeleteFileRequest true "File version"
-// @Success 200 {object} Response{body=file.Metadata}
+// @Success 200 {object} Response{body=FileBody}
 // @Router /api/v1/files/delete [post]
 func (h *Handler) DeleteFile(c *gin.Context) {
 	var r DeleteFileRequest
@@ -388,7 +445,7 @@ func (h *Handler) DeleteFile(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, v)
+	OK(c, fileBody(v))
 }
 
 // CreateUser godoc

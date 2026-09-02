@@ -13,92 +13,6 @@ definitions:
       version:
         type: string
     type: object
-  file.Authorization:
-    properties:
-      expires_at:
-        type: string
-      file:
-        $ref: '#/definitions/file.Metadata'
-      headers:
-        additionalProperties:
-          type: string
-        type: object
-      url:
-        type: string
-    type: object
-  file.Metadata:
-    properties:
-      application_id:
-        type: string
-      bucket:
-        type: string
-      checksum_sha256:
-        type: string
-      content_type:
-        type: string
-      created_at:
-        type: string
-      created_by:
-        type: string
-      filename:
-        type: string
-      id:
-        type: string
-      idempotency_key:
-        type: string
-      object_key:
-        type: string
-      owner_id:
-        type: string
-      part_count:
-        type: integer
-      part_size:
-        type: integer
-      scan_status:
-        type: string
-      size:
-        type: integer
-      status:
-        type: string
-      tenant_id:
-        type: string
-      updated_at:
-        type: string
-      updated_by:
-        type: string
-      upload_expires_at:
-        type: string
-      upload_mode:
-        type: string
-      version:
-        type: integer
-    type: object
-  file.MetadataPage:
-    properties:
-      files:
-        items:
-          $ref: '#/definitions/file.Metadata'
-        type: array
-      page:
-        type: integer
-      page_size:
-        type: integer
-      total:
-        type: integer
-    type: object
-  file.MultipartAuthorization:
-    properties:
-      expires_at:
-        type: string
-      file:
-        $ref: '#/definitions/file.Metadata'
-      part_count:
-        type: integer
-      part_size:
-        type: integer
-      upload_id:
-        type: string
-    type: object
   health.Dependency:
     properties:
       latency:
@@ -200,6 +114,60 @@ definitions:
     - id
     - tenant_id
     type: object
+  httptransport.FileAuthorizationBody:
+    properties:
+      expires_at:
+        type: string
+      file:
+        $ref: '#/definitions/httptransport.FileBody'
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      url:
+        type: string
+    type: object
+  httptransport.FileBody:
+    properties:
+      application_id:
+        type: string
+      checksum_sha256:
+        type: string
+      content_type:
+        type: string
+      created_at:
+        type: string
+      created_by:
+        type: string
+      filename:
+        type: string
+      id:
+        type: string
+      owner_id:
+        type: string
+      part_count:
+        type: integer
+      part_size:
+        type: integer
+      scan_status:
+        type: string
+      size:
+        type: integer
+      status:
+        type: string
+      tenant_id:
+        type: string
+      updated_at:
+        type: string
+      updated_by:
+        type: string
+      upload_expires_at:
+        type: string
+      upload_mode:
+        type: string
+      version:
+        type: integer
+    type: object
   httptransport.FileIDRequest:
     properties:
       application_id:
@@ -212,6 +180,19 @@ definitions:
     - application_id
     - id
     - tenant_id
+    type: object
+  httptransport.FilePageBody:
+    properties:
+      files:
+        items:
+          $ref: '#/definitions/httptransport.FileBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
     type: object
   httptransport.InitiateMultipartUploadRequest:
     properties:
@@ -294,6 +275,17 @@ definitions:
       subject:
         type: string
     type: object
+  httptransport.MultipartAuthorizationBody:
+    properties:
+      expires_at:
+        type: string
+      file:
+        $ref: '#/definitions/httptransport.FileBody'
+      part_count:
+        type: integer
+      part_size:
+        type: integer
+    type: object
   httptransport.ReportScanResultRequest:
     properties:
       application_id:
@@ -348,7 +340,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -372,7 +364,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Authorization'
+                  $ref: '#/definitions/httptransport.FileAuthorizationBody'
               type: object
       security:
       - Bearer: []
@@ -396,7 +388,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -420,7 +412,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.MetadataPage'
+                  $ref: '#/definitions/httptransport.FilePageBody'
               type: object
         "403":
           description: 'Code 20003: tenant access denied'
@@ -452,7 +444,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -477,7 +469,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -501,7 +493,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Authorization'
+                  $ref: '#/definitions/httptransport.FileAuthorizationBody'
               type: object
       security:
       - Bearer: []
@@ -525,7 +517,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -549,7 +541,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Authorization'
+                  $ref: '#/definitions/httptransport.FileAuthorizationBody'
               type: object
       security:
       - Bearer: []
@@ -573,7 +565,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.Metadata'
+                  $ref: '#/definitions/httptransport.FileBody'
               type: object
       security:
       - Bearer: []
@@ -597,7 +589,7 @@ paths:
             - $ref: '#/definitions/httptransport.Response'
             - properties:
                 body:
-                  $ref: '#/definitions/file.MultipartAuthorization'
+                  $ref: '#/definitions/httptransport.MultipartAuthorizationBody'
               type: object
       security:
       - Bearer: []

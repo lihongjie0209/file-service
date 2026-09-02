@@ -49,7 +49,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -93,7 +93,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Authorization"
+                                            "$ref": "#/definitions/httptransport.FileAuthorizationBody"
                                         }
                                     }
                                 }
@@ -137,7 +137,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -181,7 +181,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.MetadataPage"
+                                            "$ref": "#/definitions/httptransport.FilePageBody"
                                         }
                                     }
                                 }
@@ -240,7 +240,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -284,7 +284,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -328,7 +328,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Authorization"
+                                            "$ref": "#/definitions/httptransport.FileAuthorizationBody"
                                         }
                                     }
                                 }
@@ -372,7 +372,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -416,7 +416,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Authorization"
+                                            "$ref": "#/definitions/httptransport.FileAuthorizationBody"
                                         }
                                     }
                                 }
@@ -460,7 +460,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.Metadata"
+                                            "$ref": "#/definitions/httptransport.FileBody"
                                         }
                                     }
                                 }
@@ -504,7 +504,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "body": {
-                                            "$ref": "#/definitions/file.MultipartAuthorization"
+                                            "$ref": "#/definitions/httptransport.MultipartAuthorizationBody"
                                         }
                                     }
                                 }
@@ -689,137 +689,6 @@ const docTemplate = `{
                 }
             }
         },
-        "file.Authorization": {
-            "type": "object",
-            "properties": {
-                "expires_at": {
-                    "type": "string"
-                },
-                "file": {
-                    "$ref": "#/definitions/file.Metadata"
-                },
-                "headers": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "string"
-                    }
-                },
-                "url": {
-                    "type": "string"
-                }
-            }
-        },
-        "file.Metadata": {
-            "type": "object",
-            "properties": {
-                "application_id": {
-                    "type": "string"
-                },
-                "bucket": {
-                    "type": "string"
-                },
-                "checksum_sha256": {
-                    "type": "string"
-                },
-                "content_type": {
-                    "type": "string"
-                },
-                "created_at": {
-                    "type": "string"
-                },
-                "created_by": {
-                    "type": "string"
-                },
-                "filename": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "idempotency_key": {
-                    "type": "string"
-                },
-                "object_key": {
-                    "type": "string"
-                },
-                "owner_id": {
-                    "type": "string"
-                },
-                "part_count": {
-                    "type": "integer"
-                },
-                "part_size": {
-                    "type": "integer"
-                },
-                "scan_status": {
-                    "type": "string"
-                },
-                "size": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "tenant_id": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                },
-                "updated_by": {
-                    "type": "string"
-                },
-                "upload_expires_at": {
-                    "type": "string"
-                },
-                "upload_mode": {
-                    "type": "string"
-                },
-                "version": {
-                    "type": "integer"
-                }
-            }
-        },
-        "file.MetadataPage": {
-            "type": "object",
-            "properties": {
-                "files": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/file.Metadata"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
-                }
-            }
-        },
-        "file.MultipartAuthorization": {
-            "type": "object",
-            "properties": {
-                "expires_at": {
-                    "type": "string"
-                },
-                "file": {
-                    "$ref": "#/definitions/file.Metadata"
-                },
-                "part_count": {
-                    "type": "integer"
-                },
-                "part_size": {
-                    "type": "integer"
-                },
-                "upload_id": {
-                    "type": "string"
-                }
-            }
-        },
         "health.Dependency": {
             "type": "object",
             "properties": {
@@ -967,6 +836,88 @@ const docTemplate = `{
                 }
             }
         },
+        "httptransport.FileAuthorizationBody": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "file": {
+                    "$ref": "#/definitions/httptransport.FileBody"
+                },
+                "headers": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "httptransport.FileBody": {
+            "type": "object",
+            "properties": {
+                "application_id": {
+                    "type": "string"
+                },
+                "checksum_sha256": {
+                    "type": "string"
+                },
+                "content_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "type": "string"
+                },
+                "filename": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "part_count": {
+                    "type": "integer"
+                },
+                "part_size": {
+                    "type": "integer"
+                },
+                "scan_status": {
+                    "type": "string"
+                },
+                "size": {
+                    "type": "integer"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "tenant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_by": {
+                    "type": "string"
+                },
+                "upload_expires_at": {
+                    "type": "string"
+                },
+                "upload_mode": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
+                }
+            }
+        },
         "httptransport.FileIDRequest": {
             "type": "object",
             "required": [
@@ -983,6 +934,26 @@ const docTemplate = `{
                 },
                 "tenant_id": {
                     "type": "string"
+                }
+            }
+        },
+        "httptransport.FilePageBody": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.FileBody"
+                    }
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "page_size": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
                 }
             }
         },
@@ -1100,6 +1071,23 @@ const docTemplate = `{
             "properties": {
                 "subject": {
                     "type": "string"
+                }
+            }
+        },
+        "httptransport.MultipartAuthorizationBody": {
+            "type": "object",
+            "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "file": {
+                    "$ref": "#/definitions/httptransport.FileBody"
+                },
+                "part_count": {
+                    "type": "integer"
+                },
+                "part_size": {
+                    "type": "integer"
                 }
             }
         },
