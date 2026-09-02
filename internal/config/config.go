@@ -588,11 +588,8 @@ func (c Config) Validate() error {
 	if c.EventBus.Enabled && (len(c.EventBus.URLs) == 0 || c.EventBus.StreamName == "" || len(c.EventBus.Subjects) == 0 || (c.EventBus.Storage != "file" && c.EventBus.Storage != "memory") || c.EventBus.MaxAge <= 0 || c.EventBus.DuplicateWindow <= 0 || c.EventBus.ConnectTimeout <= 0 || c.EventBus.ReconnectWait <= 0 || c.EventBus.PublishTimeout <= 0 || c.EventBus.ConsumerAckWait <= 0 || c.EventBus.ConsumerMaxDeliver <= 0 || c.EventBus.DispatchInterval <= 0 || c.EventBus.DispatchBatchSize <= 0 || c.EventBus.DispatchLease <= 0 || c.EventBus.DispatchRetryDelay <= 0 || c.EventBus.PublishedRetention < c.EventBus.MaxAge || c.EventBus.CleanupInterval <= 0 || c.EventBus.CleanupBatchSize <= 0) {
 		return errors.New("enabled event_bus requires stream settings, positive delivery/dispatch/cleanup settings, and published retention at least max_age")
 	}
-	if c.ObjectStorage.Enabled && (c.ObjectStorage.Endpoint == "" || c.ObjectStorage.AccessKey == "" || c.ObjectStorage.SecretKey == "" || c.ObjectStorage.Bucket == "" || c.ObjectStorage.PresignTTL <= 0 || c.ObjectStorage.MaxUploadBytes <= 0 || c.ObjectStorage.MultipartSessionTTL <= 0 || c.ObjectStorage.CleanupBatchSize <= 0) {
-		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive limits")
-	}
-	if c.ObjectStorage.Enabled && c.ObjectStorage.PresignEndpoint != "" && c.ObjectStorage.Region == "" {
-		return errors.New("object_storage.region is required with presign_endpoint")
+	if err := validateObjectStoragePolicy(c.ObjectStorage, c.App.Env == "production"); err != nil {
+		return err
 	}
 	for name, upstream := range c.Outbound.HTTP {
 		if upstream.BaseURL == "" || upstream.Timeout <= 0 {
@@ -609,6 +606,22 @@ func (c Config) Validate() error {
 		if err := validateClientPolicy(name, upstream.Auth, upstream.Retry, upstream.Breaker, upstream.TLS); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateObjectStoragePolicy(storage ObjectStorage, production bool) error {
+	if !storage.Enabled {
+		return nil
+	}
+	if storage.Endpoint == "" || storage.AccessKey == "" || storage.SecretKey == "" || storage.Bucket == "" || storage.PresignTTL <= 0 || storage.MaxUploadBytes <= 0 || storage.MultipartSessionTTL <= 0 || storage.CleanupBatchSize <= 0 {
+		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive limits")
+	}
+	if storage.PresignEndpoint != "" && storage.Region == "" {
+		return errors.New("object_storage.region is required with presign_endpoint")
+	}
+	if production && (!storage.UseSSL || (storage.PresignEndpoint != "" && !storage.PresignUseSSL)) {
+		return errors.New("production object_storage and presigned URLs require TLS")
 	}
 	return nil
 }
