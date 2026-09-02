@@ -32,6 +32,8 @@ rate_limit:
   enabled: true
 idempotency:
   enabled: true
+  http_paths: [/api/v1/files/uploads/multipart/complete, /api/v1/files/uploads/multipart/abort, /api/v1/files/uploads/complete, /api/v1/files/scans/report, /api/v1/files/delete]
+  grpc_methods: [/platform.file.v1.FileService/CompleteMultipartUpload, /platform.file.v1.FileService/AbortMultipartUpload, /platform.file.v1.FileService/CompleteUpload, /platform.file.v1.FileService/ReportScanResult, /platform.file.v1.FileService/Delete]
 observability:
   metrics_enabled: true
   tracing_enabled: false
